@@ -1,0 +1,7 @@
+{{- "<|plamo:op|>dataset\ntranslation\n" -}}
+{% for message in messages %}
+    {{- '<|plamo:op|>' + message['content']}}
+    {%- if not loop.last %}
+        {{- '\n'}}
+    {%- endif %}
+{% endfor %}

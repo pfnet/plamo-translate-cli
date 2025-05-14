@@ -1,0 +1,74 @@
+[project]
+name = "plamo-translate"
+version = "1.0.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Shunta Saito", email = "shunta@preferred.jp" },
+]
+requires-python = ">=3.10"
+keywords = [
+    "machine translation",
+    "transformer",
+    "nlp",
+    "natural language processing",
+    "deep learning",
+    "mlx",
+    "mlx-lm",
+    "sentencepiece",
+    "plamo",
+    "plamo-translate",
+    "plamo-translate-cli",
+]
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: MacOS",
+    "Topic :: Utilities",
+    "Environment :: MacOS X",
+    "Environment :: Console",
+]
+dependencies = [
+    "mcp[cli]>=1.9.2",
+    "numba>=0.60.0",
+    "mlx-lm>=0.25.2 ; sys_platform == 'darwin'",
+]
+
+[tool.uv]
+override-dependencies = ["transformers"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = ["tests", "docs", "examples", "scripts", "notebooks", "data", "tmp"]
+
+[tool.hatch.build.targets.wheel]
+compression = "stored"
+
+[tool.hatch.build.targets.sdist]
+compress-level = 0
+
+[project.scripts]
+plamo-translate = "plamo_translate.main:main"
+
+[tool.ruff]
+line-length = 120
+
+[dependency-groups]
+dev = [
+    "build>=1.2.2.post1",
+    "ipdb>=0.13.13",
+    "pytest>=8.4.0",
+    "ruff>=0.11.12",
+    "twine>=6.1.0",
+    "wheel>=0.45.1",
+]
