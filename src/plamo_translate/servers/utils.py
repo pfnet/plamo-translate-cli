@@ -142,7 +142,11 @@ def update_config(**kwargs) -> Dict[str, Any]:
         )
     else:
         with tmp_config_path.open("r") as f:
-            config = json.load(f)
+            try:
+                config = json.load(f)
+            except json.JSONDecodeError:
+                logger.warning(f"Config file {tmp_config_path} is corrupted. Recreating it.")
+                config = {}
         for key, value in kwargs.items():
             config[key] = value
 
