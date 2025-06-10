@@ -25,13 +25,13 @@ Therefore, when installing sentencepiece in a Python 3.13 environment, you must 
 ```sh
 brew install cmake
 pip install git+https://github.com/google/sentencepiece.git@2734490#subdirectory=python
-pip install plamo-translate-cli
+pip install plamo-translate
 ```
 
 #### Python<3.13
 
 ```sh
-pip install plamo-translate-cli
+pip install plamo-translate
 ```
 
 ## Development
