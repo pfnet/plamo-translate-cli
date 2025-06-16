@@ -19,7 +19,7 @@ The issue arises because the currently distributed sentencepiece package on PyPI
 As a result, attempting to install sentencepiece as a dependency for this CLI tool package would cause build errors.
 
 However, the latest commit in the main branch of the sentencepiece GitHub repository now supports Python 3.13 and CMake 4.0 or higher (though no release has yet been made).
-Therefore, when installing sentencepiece in a Python 3.13 environment, you must first install sentencepiece directly from the GitHub repository. 
+Therefore, when installing sentencepiece in a Python 3.13 environment, you must first install sentencepiece directly from the GitHub repository.
 **This step will likely be unnecessary once the next version of sentencepiece is released.**
 
 ```sh
@@ -32,6 +32,14 @@ pip install plamo-translate
 
 ```sh
 pip install plamo-translate
+```
+
+#### [`uv tool`](https://docs.astral.sh/uv/concepts/tools/)
+
+If you use [`uv`](https://github.com/astral-sh/uv) as a package manager rather than `pip`, you can install `plamo-translate` into an isolated environment:
+
+```sh
+uv tool install -p 3.12 plamo-translate
 ```
 
 ## Development
