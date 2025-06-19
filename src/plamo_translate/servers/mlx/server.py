@@ -4,6 +4,7 @@ import importlib.resources
 import logging
 import os
 import subprocess
+import sys
 from typing import Callable, Tuple
 
 import mlx.core as mx
@@ -88,7 +89,7 @@ class PLaMoTranslateServer(FastMCP):
             envs = os.environ
             envs["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
             subprocess.run(
-                ["python", "-m", "mlx_lm", "generate", "--model", model_name, "--max-tokens", "1"],
+                [sys.executable, "-m", "mlx_lm", "generate", "--model", model_name, "--max-tokens", "1"],
                 env=envs,
                 stdout=subprocess.DEVNULL,
             )
