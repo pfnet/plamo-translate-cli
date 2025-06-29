@@ -1,6 +1,6 @@
 [project]
 name = "plamo-translate"
-version = "1.0.3"
+version = "1.0.4"
 description = "A command-line interface for translation using the plamo-2-translate model with local execution."
 readme = "README.md"
 authors = [
