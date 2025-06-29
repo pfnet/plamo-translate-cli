@@ -76,11 +76,11 @@ async def print_translation(
 def run_translate(args: argparse.Namespace) -> None:
     from_lang = args.from_lang
     if from_lang != "":
-        from_lang = f" lang:{from_lang}"
+        from_lang = f" lang={from_lang}"
 
     to = args.to
     if to != "":
-        to = f" lang:{to}"
+        to = f" lang={to}"
 
     backend_type = args.backend_type
     stream = args.stream
