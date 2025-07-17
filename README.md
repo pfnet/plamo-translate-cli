@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/pfnet-plamo-translate-cli-badge.png)](https://mseep.ai/app/pfnet-plamo-translate-cli)
+
 # plamo-translate-cli
 
 A command-line interface for translation using the plamo-2-translate model with local execution.
