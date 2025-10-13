@@ -89,7 +89,7 @@ class PLaMoTranslateServer(FastMCP):
             envs = os.environ
             envs["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
             subprocess.run(
-                [sys.executable, "-m", "mlx_lm", "generate", "--model", model_name, "--max-tokens", "1"],
+                [sys.executable, "-m", "mlx_lm", "generate", "--model", model_name, "--max-tokens", "1", "--trust-remote-code"],
                 env=envs,
                 stdout=subprocess.DEVNULL,
             )
