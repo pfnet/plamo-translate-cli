@@ -13,7 +13,7 @@ A command-line interface for translation using the plamo-2-translate model with 
 
 ### For macOS
 
-#### Python>=3.13
+#### Python 3.13
 
 The issue arises because the currently distributed sentencepiece package on PyPI (latest version: 0.2.0) is not compatible with Python 3.13 or higher and CMake 4.0 or higher.
 As a result, attempting to install sentencepiece as a dependency for this CLI tool package would cause build errors.
@@ -28,7 +28,7 @@ pip install git+https://github.com/google/sentencepiece.git@2734490#subdirectory
 pip install plamo-translate
 ```
 
-#### Python<3.13
+#### Python 3.10-3.12
 
 ```sh
 pip install plamo-translate
@@ -51,7 +51,7 @@ source .venv/bin/activate
 
 ## Requirements
 
-- Python 3.10 or higher
+- Python 3.10-3.13 (Python 3.14 is not supported due to numba dependency)
   - Common dependencies:
     - mcp[cli]
     - numba
