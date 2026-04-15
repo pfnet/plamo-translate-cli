@@ -32,7 +32,15 @@ logger = logging.getLogger(__name__)
 def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = False) -> None:
     # To avoid showing warnings related to resource_tracker
     signal.signal(signal.SIGTERM, lambda _signal_number, _frame: exit(0))
-    if backend_type == "mlx":
+    if os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") == "1":
+        from plamo_translate.servers.mock import server as mock_server
+
+        server = mock_server.PLaMoTranslateServer(log_level=log_level, show_progress=show_progress)
+        try:
+            server.run(transport="streamable-http")
+        except Exception as e:
+            print(f"Error during server running: {e}")
+    elif backend_type == "mlx":
         from plamo_translate.servers.mlx import server as mlx_server
 
         server = mlx_server.PLaMoTranslateServer(log_level=log_level, show_progress=show_progress)
@@ -255,7 +263,7 @@ def main() -> None:
             "PLAMO_TRANSLATE_CLI_REPETITION_PENALTY must also be set."
         )
 
-    if sys.stdin.isatty() and args.input is None:
+    if args.input is None and (args.interactive or sys.stdin.isatty()):
         args.interactive = True
         logging.basicConfig(level=logging.ERROR)
         os.environ["PLAMO_TRANSLATE_CLI_SERVER_LOG_LEVEL"] = "CRITICAL"
