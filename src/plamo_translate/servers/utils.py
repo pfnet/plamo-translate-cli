@@ -5,6 +5,7 @@ import os
 import socket
 import textwrap
 from contextlib import closing
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -133,27 +134,42 @@ def update_config(**kwargs) -> Dict[str, Any]:
     tmp_config_path = Path(tmp_dir) / "plamo-translate-config.json"
 
     if not tmp_config_path.exists():
-        with tmp_config_path.open("w") as f:
-            json.dump(kwargs, f, indent=4)
+        if not kwargs:
+            return {}
         config = kwargs
+        _write_config(tmp_config_path, config, indent=4)
         logger.info(
             f"Created new temporary config file at {tmp_config_path} with initial values: "
             f"{json.dumps(config, indent=4, ensure_ascii=False)}"
         )
-    else:
-        with tmp_config_path.open("r") as f:
-            try:
-                config = json.load(f)
-            except json.JSONDecodeError:
-                logger.warning(f"Config file {tmp_config_path} is corrupted. Recreating it.")
-                config = {}
-        for key, value in kwargs.items():
-            config[key] = value
+        return config
 
-        with tmp_config_path.open("w") as f:
-            json.dump(config, f)
+    with tmp_config_path.open("r") as f:
+        try:
+            config = json.load(f)
+        except json.JSONDecodeError:
+            logger.warning(f"Config file {tmp_config_path} is corrupted. Recreating it.")
+            config = {}
+
+    if not kwargs:
+        return config
+
+    for key, value in kwargs.items():
+        config[key] = value
+
+    _write_config(tmp_config_path, config)
 
     return config
+
+
+def _write_config(path: Path, config: Dict[str, Any], *, indent: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile("w", dir=path.parent, delete=False, encoding="utf-8") as tmp_file:
+        json.dump(config, tmp_file, indent=indent)
+        tmp_file.flush()
+        os.fsync(tmp_file.fileno())
+        tmp_path = Path(tmp_file.name)
+    tmp_path.replace(path)
 
 
 class Message(BaseModel):

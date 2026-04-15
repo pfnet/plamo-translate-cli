@@ -45,6 +45,20 @@ def wait_for_port_in_use(port: int, timeout: int = SERVER_STARTUP_TIMEOUT_SECOND
     raise AssertionError(f"Timed out waiting for port {port} to start accepting connections.")
 
 
+def test_update_config_without_kwargs_is_read_only(tmp_path):
+    config_path = tmp_path / "plamo-translate-config.json"
+
+    assert update_config() == {}
+    assert not config_path.exists(), "Read-only access should not create the config file"
+
+    initial_config = {"port": PLAMO_TRANSLATE_CLI_SERVER_START_PORT}
+    update_config(**initial_config)
+    initial_contents = config_path.read_text()
+
+    assert update_config() == initial_config
+    assert config_path.read_text() == initial_contents, "Read-only access should not rewrite the config file"
+
+
 def stop_subprocess(process: subprocess.Popen[str] | None) -> None:
     if process is None:
         return
