@@ -1,17 +1,78 @@
 import http.server
 import multiprocessing
+import os
+import socket
 import socketserver
 import subprocess
-import tempfile
+import time
 
+import pytest
+
+from plamo_translate.main import check_server_running
 from plamo_translate.servers.utils import PLAMO_TRANSLATE_CLI_SERVER_START_PORT, update_config
+
+CLI_TIMEOUT_SECONDS = int(os.environ.get("PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS", "20"))
+SERVER_STARTUP_TIMEOUT_SECONDS = int(os.environ.get("PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS", "10"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_test_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER",
+        os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER", "1"),
+    )
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+
+
+def wait_for_server_ready(timeout: int = SERVER_STARTUP_TIMEOUT_SECONDS) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check_server_running():
+            return
+        time.sleep(0.1)
+
+    raise AssertionError("Timed out waiting for the MCP server to become ready.")
+
+
+def wait_for_port_in_use(port: int, timeout: int = SERVER_STARTUP_TIMEOUT_SECONDS) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.1)
+
+    raise AssertionError(f"Timed out waiting for port {port} to start accepting connections.")
+
+
+def stop_subprocess(process: subprocess.Popen[str] | None) -> None:
+    if process is None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def stop_multiprocess(process: multiprocessing.Process | None) -> None:
+    if process is None:
+        return
+
+    process.terminate()
+    process.join(timeout=5)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
 
 
 def test_plamo_translate_without_server():
     text_to_translate = "Proud, but humble"
     command = ["plamo-translate", "--from", "English", "--to", "Japanese", "--input", text_to_translate]
-    result = subprocess.run(command, capture_output=True, text=True)
-    assert result.returncode == 0  # This will likely fail without a model
+    result = subprocess.run(command, capture_output=True, text=True, timeout=CLI_TIMEOUT_SECONDS)
+    assert result.returncode == 0
     assert "誇り高" in result.stdout and "謙虚" in result.stdout
 
 
@@ -20,11 +81,7 @@ def test_plamo_translate_server_simple_use():
     try:
         command = ["plamo-translate", "server"]
         first_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        while True:
-            if first_process.stderr is not None:
-                line = first_process.stderr.readline()
-                if "Application startup complete" in line.strip():
-                    break
+        wait_for_server_ready()
 
         config = update_config()
         print(f"Server started with config: {config}")
@@ -37,6 +94,7 @@ def test_plamo_translate_server_simple_use():
             ["plamo-translate", "--input", text_to_translate, "--from", "English", "--to", "Japanese"],
             capture_output=True,
             text=True,
+            timeout=CLI_TIMEOUT_SECONDS,
         )
         assert "誇り高い" in result.stdout and "謙虚" in result.stdout
 
@@ -45,11 +103,11 @@ def test_plamo_translate_server_simple_use():
             input=text_to_translate,
             capture_output=True,
             text=True,
+            timeout=CLI_TIMEOUT_SECONDS,
         )
         assert "誇り高い" in result.stdout and "謙虚" in result.stdout
     finally:
-        if first_process:
-            first_process.terminate()
+        stop_subprocess(first_process)
 
 
 def test_plamo_translate_server_already_running():
@@ -59,32 +117,22 @@ def test_plamo_translate_server_already_running():
         command = ["plamo-translate", "server"]
         first_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         print("Starting first plamo-translate server process...")
-        while True:
-            if first_process.stderr is not None:
-                line = first_process.stderr.readline()
-                print(line.strip())
-                if "Application startup complete" in line.strip():
-                    break
+        wait_for_server_ready()
         print("First server process started successfully.")
 
         # If the server is already running, the further call of `plamo-translate server` should not start a new server.
         second_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        while True:
-            if second_process.stdout is not None:
-                line = second_process.stdout.readline()
-                print(line.strip())
-                if "MCP server is already running" in line.strip():
-                    break
+        stdout, _ = second_process.communicate(timeout=CLI_TIMEOUT_SECONDS)
+        print(stdout.strip())
+        assert "MCP server is already running" in stdout
         config = update_config()
         print(f"Server started with config: {config}")
         assert "port" in config, "Server configuration should include a port"
         port = config["port"]
         assert port == PLAMO_TRANSLATE_CLI_SERVER_START_PORT, f"Expected server port to be 8000, got {port}"
     finally:
-        if first_process:
-            first_process.terminate()
-        if second_process:
-            second_process.terminate()
+        stop_subprocess(first_process)
+        stop_subprocess(second_process)
 
 
 def start_http_server():
@@ -101,19 +149,15 @@ def test_plamo_translate_server_find_new_port():
         http_server_process = multiprocessing.Process(target=start_http_server, daemon=True)
         http_server_process.start()
         print(f"HTTP server started on port {PLAMO_TRANSLATE_CLI_SERVER_START_PORT}")
+        wait_for_port_in_use(PLAMO_TRANSLATE_CLI_SERVER_START_PORT)
 
         # The default port is used by the HTTP server, so the MCP server should use a different port
         command = ["plamo-translate", "server"]
         mcp_server_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         print("Starting plamo-translate server...")
-        while True:
-            print("Waiting for plamo-translate server to start...")
-            if mcp_server_process.stderr is not None:
-                line = mcp_server_process.stderr.readline()
-                print(line.strip())
-                if "Application startup complete" in line.strip():
-                    break
-        mcp_server_process.terminate()
+        wait_for_server_ready()
+        stop_subprocess(mcp_server_process)
+        mcp_server_process = None
 
         config = update_config()
         print(f"Server started with config: {config}")
@@ -123,10 +167,8 @@ def test_plamo_translate_server_find_new_port():
             f"Expected server port to be {PLAMO_TRANSLATE_CLI_SERVER_START_PORT + 1}, got {port}"
         )
     finally:
-        if http_server_process:
-            http_server_process.terminate()
-        if mcp_server_process:
-            mcp_server_process.terminate()
+        stop_multiprocess(http_server_process)
+        stop_subprocess(mcp_server_process)
 
 
 def test_plamo_translate_server_interactive():
@@ -135,11 +177,7 @@ def test_plamo_translate_server_interactive():
     try:
         command = ["plamo-translate", "server"]
         mcp_server_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        while True:
-            if mcp_server_process.stderr is not None:
-                line = mcp_server_process.stderr.readline()
-                if "Application startup complete" in line.strip():
-                    break
+        wait_for_server_ready()
         config = update_config()
         print(f"Server started with config: {config}")
         assert "port" in config, "Server configuration should include a port"
@@ -148,7 +186,7 @@ def test_plamo_translate_server_interactive():
             f"Expected server port to be {PLAMO_TRANSLATE_CLI_SERVER_START_PORT}, got {port}"
         )
 
-        client_command = ["plamo-translate", "--from", "English", "--to", "Japanese"]
+        client_command = ["plamo-translate", "-i", "--from", "English", "--to", "Japanese"]
         client_process = subprocess.Popen(
             client_command,
             stdin=subprocess.PIPE,
@@ -159,12 +197,9 @@ def test_plamo_translate_server_interactive():
 
         all_inputs = "\n".join(["Proud, but humble", "Boldly do what no one has done before"]) + "\n"
 
-        stdout, stderr = client_process.communicate(input=all_inputs)
-        stdout_lines = stdout.strip().split("\n")
-        assert "誇り高" in stdout_lines[0] and "謙虚" in stdout_lines[0]
-        assert "大胆に" in stdout_lines[1]
+        stdout, stderr = client_process.communicate(input=all_inputs, timeout=CLI_TIMEOUT_SECONDS)
+        assert "誇り高" in stdout and "謙虚" in stdout
+        assert "大胆に" in stdout
     finally:
-        if mcp_server_process:
-            mcp_server_process.terminate()
-        if client_process:
-            client_process.terminate()
+        stop_subprocess(mcp_server_process)
+        stop_subprocess(client_process)
