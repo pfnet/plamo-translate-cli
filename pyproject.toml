@@ -43,7 +43,7 @@ dependencies = [
 ]
 
 [tool.uv]
-override-dependencies = ["transformers"]
+override-dependencies = ["transformers<5"]
 
 [build-system]
 requires = ["hatchling"]
