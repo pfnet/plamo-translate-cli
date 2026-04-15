@@ -13,22 +13,8 @@ A command-line interface for translation using the plamo-2-translate model with 
 
 ### For macOS
 
-#### Python>=3.13
-
-The issue arises because the currently distributed sentencepiece package on PyPI (latest version: 0.2.0) is not compatible with Python 3.13 or higher and CMake 4.0 or higher.
-As a result, attempting to install sentencepiece as a dependency for this CLI tool package would cause build errors.
-
-However, the latest commit in the main branch of the sentencepiece GitHub repository now supports Python 3.13 and CMake 4.0 or higher (though no release has yet been made).
-Therefore, when installing sentencepiece in a Python 3.13 environment, you must first install sentencepiece directly from the GitHub repository.
-**This step will likely be unnecessary once the next version of sentencepiece is released.**
-
-```sh
-brew install cmake
-pip install git+https://github.com/google/sentencepiece.git@2734490#subdirectory=python
-pip install plamo-translate
-```
-
-#### Python<3.13
+`plamo-translate` currently installs on Python 3.10 through 3.14 on macOS.
+No additional workaround is required for `sentencepiece` on Python 3.13 or 3.14 with current upstream releases.
 
 ```sh
 pip install plamo-translate
@@ -39,7 +25,7 @@ pip install plamo-translate
 If you use [`uv`](https://github.com/astral-sh/uv) as a package manager rather than `pip`, you can install `plamo-translate` into an isolated environment:
 
 ```sh
-uv tool install -p 3.12 plamo-translate
+uv tool install -p 3.14 plamo-translate
 ```
 
 ## Development
@@ -51,7 +37,7 @@ source .venv/bin/activate
 
 ## Requirements
 
-- Python 3.10 or higher
+- Python 3.10 through 3.14
   - Common dependencies:
     - mcp[cli]
     - numba
