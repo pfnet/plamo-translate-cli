@@ -2,10 +2,11 @@ name: CI
 
 on:
   push:
+  pull_request:
 
 jobs:
   mock-test:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       matrix:
@@ -14,7 +15,7 @@ jobs:
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '1'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '20'
       PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '10'
-      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+      UV_CACHE_DIR: .cache/uv
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
@@ -43,27 +44,27 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     env:
-      HF_HOME: ${{ runner.temp }}/hf
-      HUGGINGFACE_HUB_CACHE: ${{ runner.temp }}/hf/hub
+      HF_HOME: .cache/hf
+      HUGGINGFACE_HUB_CACHE: .cache/hf/hub
       PLAMO_TRANSLATE_CLI_MODEL_NAME: mlx-community/plamo-2-translate
       PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-2-translate
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
       PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
-      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+      UV_CACHE_DIR: .cache/uv
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.14
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.13'
       - name: Cache uv downloads
         uses: actions/cache@v4
         with:
           path: ${{ env.UV_CACHE_DIR }}
-          key: ${{ runner.os }}-uv-py3.14-${{ hashFiles('uv.lock') }}
+          key: ${{ runner.os }}-uv-py3.13-${{ hashFiles('uv.lock') }}
           restore-keys: |
-            ${{ runner.os }}-uv-py3.14-
+            ${{ runner.os }}-uv-py3.13-
             ${{ runner.os }}-uv-
       - name: Cache Hugging Face models
         uses: actions/cache@v4
