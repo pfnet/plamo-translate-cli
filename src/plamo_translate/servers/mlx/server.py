@@ -29,6 +29,10 @@ from plamo_translate.servers.utils import (
     find_free_port,
     update_config,
 )
+from plamo_translate.servers.warnings import (
+    build_optional_gpu_dependency_warning_options,
+    suppress_optional_gpu_dependency_warnings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,22 +90,34 @@ class PLaMoTranslateServer(FastMCP):
 
         # Reload mlx_lm.utils here to refleect the environment variables for progress bars
         if self.show_progress:
-            envs = os.environ
+            envs = os.environ.copy()
             envs["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
             subprocess.run(
-                [sys.executable, "-m", "mlx_lm", "generate", "--model", model_name, "--max-tokens", "1", "--trust-remote-code"],
+                [
+                    sys.executable,
+                    *build_optional_gpu_dependency_warning_options(),
+                    "-m",
+                    "mlx_lm",
+                    "generate",
+                    "--model",
+                    model_name,
+                    "--max-tokens",
+                    "1",
+                    "--trust-remote-code",
+                ],
                 env=envs,
                 stdout=subprocess.DEVNULL,
             )
 
-        model, tokenizer = load(
-            model_name,
-            model_config={"trust_remote_code": True},
-            tokenizer_config={
-                "trust_remote_code": True,
-                "chat_template": chat_template,
-            },
-        )
+        with suppress_optional_gpu_dependency_warnings():
+            model, tokenizer = load(
+                model_name,
+                model_config={"trust_remote_code": True},
+                tokenizer_config={
+                    "trust_remote_code": True,
+                    "chat_template": chat_template,
+                },
+            )
         tokenizer.add_eos_token("<|plamo:op|>")
 
         sampler = make_sampler(
