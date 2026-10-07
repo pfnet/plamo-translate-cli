@@ -1423,7 +1423,7 @@ wheels = [
 
 [[package]]
 name = "plamo-translate"
-version = "1.0.5"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

@@ -1,6 +1,6 @@
 [project]
 name = "plamo-translate"
-version = "1.0.5"
+version = "1.1.0"
 description = "A command-line interface for translation using the plamo-2-translate model with local execution."
 readme = "README.md"
 authors = [
@@ -56,6 +56,8 @@ exclude = ["tests", "docs", "examples", "scripts", "notebooks", "data", "tmp"]
 
 [tool.hatch.build.targets.wheel]
 compression = "stored"
+# Twine 6.2 supports Core Metadata through version 2.4.
+core-metadata-version = "2.4"
 
 [tool.hatch.build.targets.sdist]
 compress-level = 0
