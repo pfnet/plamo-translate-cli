@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import time
 
 import pytest
@@ -75,5 +76,63 @@ def test_plamo_translate_server_roundtrip_with_real_model():
         )
         assert result.returncode == 0
         assert "誇り高" in result.stdout and "謙虚" in result.stdout
+    finally:
+        stop_subprocess(server_process)
+
+
+def test_plamo_translate_4bit_completions_issue_10(monkeypatch, tmp_path):
+    """The reported short word must translate, including across interactive turns."""
+    model_name = "mlx-community/plamo-2-translate"
+    monkeypatch.setenv("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER", "0")
+    monkeypatch.setenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", model_name)
+    monkeypatch.setenv("PLAMO_TRANSLATE_CLI_TEMP", "0.0")
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_REPETITION_PENALTY", raising=False)
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE", raising=False)
+
+    server_process = None
+    try:
+        server_process = subprocess.Popen(
+            ["plamo-translate", "server", "--precision", "4bit"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        wait_for_server_ready()
+        assert update_config().get("model_name") == model_name
+
+        result = subprocess.run(
+            ["plamo-translate", "--from", "English", "--to", "Japanese", "--input", "completions"],
+            capture_output=True,
+            text=True,
+            timeout=CLI_TIMEOUT_SECONDS,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "完了", result.stdout
+
+        # Exercise the real CLI while keeping readline history inside this test's
+        # temporary directory, including the history write registered with atexit.
+        entrypoint = tmp_path / "interactive_cli.py"
+        entrypoint.write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "from types import SimpleNamespace\n"
+            "import plamo_translate.main as cli\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    cli.Path = SimpleNamespace(home=lambda: Path(os.environ['TMPDIR']))\n"
+            "    cli.main()\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, str(entrypoint), "--interactive", "--from", "English", "--to", "Japanese"],
+            input="completions\n" * 3,
+            capture_output=True,
+            text=True,
+            timeout=CLI_TIMEOUT_SECONDS,
+        )
+        assert result.returncode == 0, result.stderr
+        responses = [line.removeprefix("> ").strip() for line in result.stdout.splitlines() if line.startswith("> ")]
+        assert responses[:3] == ["完了"] * 3, result.stdout
+        assert "Ctrl+D received. Exiting." in result.stdout, result.stdout
     finally:
         stop_subprocess(server_process)
