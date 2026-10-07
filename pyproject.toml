@@ -39,7 +39,8 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=1.9.2",
     "numba>=0.60.0",
-    "mlx-lm>=0.26.3 ; sys_platform == 'darwin'",
+    "mlx-lm>=0.31.2,<0.32 ; sys_platform == 'darwin'",
+    "transformers>=4.46,<5",
 ]
 
 [tool.uv]
@@ -70,6 +71,7 @@ dev = [
     "ipdb>=0.13.13",
     "pytest>=8.4.0",
     "ruff>=0.11.12",
+    "sacrebleu>=2.6.0",
     "twine>=6.1.0",
     "wheel>=0.45.1",
 ]

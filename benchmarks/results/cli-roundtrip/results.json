@@ -1,0 +1,24 @@
+{
+  "model": "/Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit",
+  "startup_seconds": 4.682782541029155,
+  "config": {
+    "backend_type": "mlx",
+    "port": 31200,
+    "model_name": "/Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit",
+    "precision": "4bit"
+  },
+  "runs": [
+    {
+      "stream": true,
+      "elapsed_seconds": 10.639908874989487,
+      "exact_match_direct": true,
+      "chrf": 73.77410371876384
+    },
+    {
+      "stream": false,
+      "elapsed_seconds": 10.232298416027334,
+      "exact_match_direct": true,
+      "chrf": 73.77410371876384
+    }
+  ]
+}

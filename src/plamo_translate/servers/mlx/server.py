@@ -1,10 +1,7 @@
 import asyncio
 import contextlib
-import importlib.resources
 import logging
 import os
-import subprocess
-import sys
 from typing import Callable, Tuple
 
 import mlx.core as mx
@@ -13,7 +10,9 @@ from mcp.server.fastmcp import Context, FastMCP
 from mlx_lm.generate import stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
-from mlx_lm.utils import load
+from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
+
+from plamo_translate.servers.mlx.loader import load_translation_model
 
 from plamo_translate.servers.utils import (
     INSTRUCTION,
@@ -28,10 +27,6 @@ from plamo_translate.servers.utils import (
     construct_llm_input,
     find_free_port,
     update_config,
-)
-from plamo_translate.servers.warnings import (
-    build_optional_gpu_dependency_warning_options,
-    suppress_optional_gpu_dependency_warnings,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +54,7 @@ class PLaMoTranslateServer(FastMCP):
         self.tokenizer = tokenizer
         self.sampler = sampler
         self.logits_processors = logits_processors
+        self.generation_lock = asyncio.Lock()
 
         self.add_tool(
             fn=self.translate,
@@ -79,46 +75,21 @@ class PLaMoTranslateServer(FastMCP):
 
     def load_model(self) -> Tuple[nn.Module, TokenizerWrapper, Callable[..., mx.array], list]:
         """Load the MLX model if not already loaded."""
-        try:
-            ref = importlib.resources.files("plamo_translate.assets").joinpath("chat_template.jinja2")
-            chat_template = ref.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            raise RuntimeError("chat_template.jinja2 not found in assets directory")
-
         model_name = os.getenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", PLAMO_TRANSLATE_CLI_MODEL_NAME)
-        update_config(model_name=model_name)
-
-        # Reload mlx_lm.utils here to refleect the environment variables for progress bars
         if self.show_progress:
-            envs = os.environ.copy()
-            envs["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
-            subprocess.run(
-                [
-                    sys.executable,
-                    *build_optional_gpu_dependency_warning_options(),
-                    "-m",
-                    "mlx_lm",
-                    "generate",
-                    "--model",
-                    model_name,
-                    "--max-tokens",
-                    "1",
-                    "--trust-remote-code",
-                ],
-                env=envs,
-                stdout=subprocess.DEVNULL,
-            )
-
-        with suppress_optional_gpu_dependency_warnings():
-            model, tokenizer = load(
-                model_name,
-                model_config={"trust_remote_code": True},
-                tokenizer_config={
-                    "trust_remote_code": True,
-                    "chat_template": chat_template,
-                },
-            )
-        tokenizer.add_eos_token("<|plamo:op|>")
+            enable_progress_bars()
+        else:
+            disable_progress_bars()
+        precision = os.getenv("PLAMO_TRANSLATE_CLI_PRECISION")
+        model, tokenizer, config = load_translation_model(
+            model_name,
+            precision,
+            optimize=os.getenv("PLAMO_TRANSLATE_CLI_OPTIMIZE", "0") == "1",
+        )
+        actual_precision = config.get("plamo_translate_precision")
+        if actual_precision is None:
+            actual_precision = f"{config['quantization']['bits']}bit" if config.get("quantization") else "bf16"
+        update_config(model_name=model_name, precision=actual_precision)
 
         sampler = make_sampler(
             temp=float(PLAMO_TRANSLATE_CLI_TEMP),
@@ -143,6 +114,10 @@ class PLaMoTranslateServer(FastMCP):
 
     async def translate(self, request: TranslateRequest, stream: bool, context: Context) -> str:
         """Run the translation tool"""
+        async with self.generation_lock:
+            return await self._translate(request, stream, context)
+
+    async def _translate(self, request: TranslateRequest, stream: bool, context: Context) -> str:
         logger.info(f"Received translation request: {context.request_id}")
         try:
             messages = construct_llm_input(request)
@@ -159,6 +134,7 @@ class PLaMoTranslateServer(FastMCP):
                 sampler=self.sampler,
                 logits_processors=self.logits_processors,
                 max_tokens=int(PLAMO_MAX_TOKENS),
+                prefill_step_size=int(os.getenv("PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE", "512")),
             ):
                 translation += segment.text
                 segments_count += 1
@@ -174,10 +150,12 @@ class PLaMoTranslateServer(FastMCP):
                     # Small delay to ensure progress is sent
                     await asyncio.sleep(0)
 
-            if not stream:
-                return translation
-            else:
-                return ""
+            if segment.finish_reason == "length":
+                raise RuntimeError("Translation reached PLAMO_MAX_TOKENS before EOS; increase the limit and retry")
+
+            # The final result also carries the full text so clients can recover
+            # any progress notifications that arrive late or are lost.
+            return translation
 
         except Exception as e:
             logger.error(f"Translation error: {str(e)}")
