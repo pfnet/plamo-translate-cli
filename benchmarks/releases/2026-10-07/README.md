@@ -3,6 +3,13 @@
 Source: `pfnet/plamo-2-translate` at `cae8da342a3e051ed69f90ce24c23eacff908732`.
 Apple M1 Max, 32 GPU cores, 64 GB; MLX 0.31.1 and mlx-lm 0.31.2.
 
+Published and verified revisions:
+
+| Release | Published revision | Weight size | chrF | Verified files |
+| --- | --- | ---: | ---: | ---: |
+| 8bit | [`6b1851db`](https://huggingface.co/mlx-community/plamo-2-translate-8bit/tree/6b1851db9edd12c3b7a8b2c33f7505a87380a3ae) | 10.12 GB | 73.94 | 16 |
+| BF16 | [`bcc519c8`](https://huggingface.co/mlx-community/plamo-2-translate-bf16/tree/bcc519c834c0eb0f980168d48d1d9239e3dae175) | 19.06 GB | 73.46 | 18 |
+
 | Release | Weight bytes | chrF | Tensor dtypes | Validation |
 | --- | ---: | ---: | --- | --- |
 | 8bit | 10,124,903,941 | 73.94 | 597 BF16, 162 U32 | Two standalone runs and both CLI modes match corrected direct 8bit inference |
@@ -34,3 +41,6 @@ were not changed), `HF_XET_FIXED_UPLOAD_CONCURRENCY=2`,
 `HF_XET_CLIENT_READ_TIMEOUT=600s`, `HF_XET_CLIENT_RETRY_MAX_DURATION=1800s`, and
 `HF_XET_DATA_MAX_CONCURRENT_FILE_INGESTION=1`. These are documented in
 [Hugging Face's Xet settings](https://huggingface.co/docs/hub/xet/using-xet-storage#environment-variables).
+The 8bit publication completed with those settings. BF16 remained slow with two
+uploads in flight, so it was restarted with `HF_XET_FIXED_UPLOAD_CONCURRENCY=8`
+and the same timeout settings after confirming its remote head had not changed.

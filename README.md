@@ -278,6 +278,17 @@ and [upstream MLX PLaMo 2](https://github.com/ml-explore/mlx-lm/blob/v0.31.2/mlx
 
 #### Standalone 8bit and BF16 releases
 
+| Release | Published revision | Weight size | chrF | Verified files |
+| --- | --- | ---: | ---: | ---: |
+| 8bit | [`6b1851db`](https://huggingface.co/mlx-community/plamo-2-translate-8bit/tree/6b1851db9edd12c3b7a8b2c33f7505a87380a3ae) | 10.12 GB | 73.94 | 16 |
+| BF16 | [`bcc519c8`](https://huggingface.co/mlx-community/plamo-2-translate-bf16/tree/bcc519c834c0eb0f980168d48d1d9239e3dae175) | 19.06 GB | 73.46 | 18 |
+
+Both releases reproduce corrected direct inference at the same precision in two
+standalone runs and both CLI modes. chrF uses the supplied example only; BF16 still
+omits “Together with You” in the title. All published files match the validated
+local bytes. Full outputs and publication hashes are in
+[`benchmarks/releases/2026-10-07`](benchmarks/releases/2026-10-07).
+
 `--precision 8bit` selects `mlx-community/plamo-2-translate-8bit` and
 `--precision bf16` selects `mlx-community/plamo-2-translate-bf16` unless a model
 path or repository was explicitly provided. The exporter supports both precisions:
