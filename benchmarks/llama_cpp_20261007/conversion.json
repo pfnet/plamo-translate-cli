@@ -1,0 +1,76 @@
+{
+  "source": "/Users/shunta/Models/pfnet--plamo-2-translate",
+  "llama_cpp_revision": "db33d3cb89d8b0d954df66047b13e9cc22df8f10",
+  "patch_sha256": "05c5ee68014d5a7a5791fcb79e42c7f02ab4cc0419edec0549ca188c666b7d07",
+  "model_source_revision_metadata": "cae8da342a3e051ed69f90ce24c23eacff908732\nf774c4b41368b2b02727c12ca63346f6051beb2b\n1791355785.868573\n",
+  "files": {
+    "/Users/shunta/Models/pfnet--plamo-2-translate/config.json": {
+      "bytes": 1184,
+      "sha256": "b38b2e9233346ff808840e0d53309406ac3b5dd7fbca91317b72429ac2061d53"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/tokenizer_config.json": {
+      "bytes": 1425,
+      "sha256": "5194084b19d0155a08e087dfc40e32e76ffd401e3d2ac09e6c0179a71d187832"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/tokenizer.jsonl": {
+      "bytes": 10573745,
+      "sha256": "3af94303d6c676e875e13165abf4e4a9d42c663ef247a8985cdeedb223cc0681"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/model.safetensors.index.json": {
+      "bytes": 37217,
+      "sha256": "1e28c827a896063a6e21f4e81b064ac4169741c64ce6db04a24be0f2c6a26d98"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/model-00001-of-00004.safetensors": {
+      "bytes": 4771172576,
+      "sha256": "d201b4d02529e37365c05191511903d6db52e2aac9aa05b4d6a760858e293fce"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/model-00002-of-00004.safetensors": {
+      "bytes": 4964802416,
+      "sha256": "2da06403e4ea131a1b1310400717a2f3a72a6f0cc0875cc7955b32fe43efaafe"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/model-00003-of-00004.safetensors": {
+      "bytes": 4832590896,
+      "sha256": "d52f60efd8085a9e2e35b199d2da542a208f7f0cfc2ed11292e9c5cb374828f2"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate/model-00004-of-00004.safetensors": {
+      "bytes": 4487955040,
+      "sha256": "5f0eb484000e34a8b1b947161db42350fc00933409ec7ade4519fb279ef5ffa3"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-F16.gguf": {
+      "bytes": 19061207616,
+      "sha256": "3580518616e955f763c1fcb2e5e8a61056e2290d2279f32e1ee22a9f11fefe06"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf": {
+      "bytes": 6243387968,
+      "sha256": "3d9a5570b11d79ccf73de978532ef5dae63fc8de7b829eecefef897ce881f957"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0.gguf": {
+      "bytes": 5471636032,
+      "sha256": "db1c6b12cbc29b61de0e6ee26d767ba9c54a55feb51adca6d8eb233b024c47a9"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_1.gguf": {
+      "bytes": 6041471552,
+      "sha256": "fe7c610838e3c44a15058de099cb5faaf1ecd70901c91e43617bbbc6b24d51e4"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_K_M.gguf": {
+      "bytes": 5791713856,
+      "sha256": "a6a40f927c9bb8c019d8859fc55c24763d8c9a97af6852eeeac545aab62a5783"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q5_0.gguf": {
+      "bytes": 6611307072,
+      "sha256": "d655a291e4b74a0ac04ab5a426d3a772fb21782fe147c9319a7e93ac4cefcec1"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q5_K_M.gguf": {
+      "bytes": 6776195648,
+      "sha256": "676ac0a085df585c17872ee122e135f2ea6e41e250f2fc47a02864fd4b928834"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q6_K.gguf": {
+      "bytes": 7822207552,
+      "sha256": "1fbcdd3e1fde6ac0f1e0c2cd9c42423ced3a440499e01821a481ac60f33c68d4"
+    },
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q8_0.gguf": {
+      "bytes": 10129551936,
+      "sha256": "09158678b3f64c6ad98d0c890bb1c3fc0553050ea6b6e6125dc8d673fbe8f020"
+    }
+  }
+}

@@ -1,0 +1,262 @@
+[
+  {
+    "label": "ngram3-1",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 12.657871957984753,
+    "first_token_seconds": 1.0351071669720113,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1020.085,
+      "prompt_per_token_ms": 2.8024313186813186,
+      "prompt_per_second": 356.8330090139547,
+      "predicted_n": 410,
+      "predicted_ms": 11622.045,
+      "predicted_per_token_ms": 28.41575794621027,
+      "predicted_per_second": 35.191741212497455,
+      "draft_n": 112,
+      "draft_n_accepted": 12
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--spec-type",
+      "ngram-simple",
+      "--spec-ngram-simple-size-n",
+      "3",
+      "--spec-ngram-simple-size-m",
+      "8",
+      "--spec-draft-n-max",
+      "8"
+    ]
+  },
+  {
+    "label": "ngram3-2",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 12.736156874976587,
+    "first_token_seconds": 1.0296976249665022,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1013.998,
+      "prompt_per_token_ms": 2.7857087912087914,
+      "prompt_per_second": 358.9750670119665,
+      "predicted_n": 410,
+      "predicted_ms": 11705.961,
+      "predicted_per_token_ms": 28.620931540342298,
+      "predicted_per_second": 34.93946374842698,
+      "draft_n": 112,
+      "draft_n_accepted": 12
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--spec-type",
+      "ngram-simple",
+      "--spec-ngram-simple-size-n",
+      "3",
+      "--spec-ngram-simple-size-m",
+      "8",
+      "--spec-draft-n-max",
+      "8"
+    ]
+  },
+  {
+    "label": "t4-u256-1",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 11.419345666014124,
+    "first_token_seconds": 1.2832155410433188,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1265.787,
+      "prompt_per_token_ms": 3.4774368131868134,
+      "prompt_per_second": 287.5681295510224,
+      "predicted_n": 410,
+      "predicted_ms": 10135.724,
+      "predicted_per_token_ms": 24.781721271393643,
+      "predicted_per_second": 40.35232214294707
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--threads",
+      "4",
+      "--ubatch-size",
+      "256"
+    ]
+  },
+  {
+    "label": "t4-u256-2",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 10.922996124951169,
+    "first_token_seconds": 1.0560199169558473,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1036.601,
+      "prompt_per_token_ms": 2.8478049450549454,
+      "prompt_per_second": 351.1476450437536,
+      "predicted_n": 410,
+      "predicted_ms": 9866.414,
+      "predicted_per_token_ms": 24.123261613691934,
+      "predicted_per_second": 41.45376425517924
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--threads",
+      "4",
+      "--ubatch-size",
+      "256"
+    ]
+  },
+  {
+    "label": "t8-fa-off-1",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 11.378752666001674,
+    "first_token_seconds": 1.0483497499953955,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1034.058,
+      "prompt_per_token_ms": 2.840818681318681,
+      "prompt_per_second": 352.01120246639937,
+      "predicted_n": 410,
+      "predicted_ms": 10329.724,
+      "predicted_per_token_ms": 25.256048899755502,
+      "predicted_per_second": 39.594475128280294
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--flash-attn",
+      "off"
+    ]
+  },
+  {
+    "label": "t8-fa-off-2",
+    "options": {
+      "model": "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf",
+      "executable": "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+      "ctx_size": 32768,
+      "batch_size": 2048,
+      "ubatch_size": 512,
+      "threads": 8,
+      "gpu_layers": 99,
+      "flash_attn": "on",
+      "startup_timeout": 180
+    },
+    "wall_seconds": 11.508844833006151,
+    "first_token_seconds": 1.0374617500347085,
+    "chrf": 73.80682036281007,
+    "chrf_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.6.0",
+    "paragraphs": 8,
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 364,
+      "prompt_ms": 1018.984,
+      "prompt_per_token_ms": 2.7994065934065935,
+      "prompt_per_second": 357.2185628037339,
+      "predicted_n": 410,
+      "predicted_ms": 10470.91,
+      "predicted_per_token_ms": 25.601246943765283,
+      "predicted_per_second": 39.06059740748417
+    },
+    "stop_type": "eos",
+    "truncated": false,
+    "contains_names": true,
+    "contains_motto": true,
+    "contains_founders_love": true,
+    "title_mentions_together": true,
+    "extra_args": [
+      "--flash-attn",
+      "off"
+    ]
+  }
+]

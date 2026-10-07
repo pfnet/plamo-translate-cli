@@ -1,0 +1,67 @@
+INFO:     Started server process [34381]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:31300 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53618 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53620 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53619 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53621 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53622 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53623 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53624 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53625 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53626 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53627 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53628 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53629 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53630 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53631 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53632 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53633 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53635 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53634 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53636 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53642 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53643 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53644 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53645 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53647 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53648 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53649 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53650 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53651 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53652 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53653 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53654 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53655 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53656 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53657 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53666 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53667 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53668 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53669 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53670 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53671 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53672 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53673 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53674 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53675 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53676 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53677 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53678 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53679 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53680 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53681 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53683 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53684 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53685 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53686 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:53687 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53688 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53690 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53691 - "DELETE /mcp HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [34381]

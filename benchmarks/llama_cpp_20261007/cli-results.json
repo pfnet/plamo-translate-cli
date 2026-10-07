@@ -1,0 +1,30 @@
+{
+  "server_command": [
+    "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.venv/bin/plamo-translate",
+    "server",
+    "--backend-type",
+    "llama.cpp",
+    "--llama-server",
+    "/Users/shunta/.codex/worktrees/9612/plamo-translate-cli/.local/llama.cpp/build/bin/llama-server",
+    "--model",
+    "/Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf"
+  ],
+  "checks": [
+    {
+      "name": "stream",
+      "returncode": 0,
+      "seconds": 11.726509957981762,
+      "bytes": 3361
+    },
+    {
+      "name": "batch",
+      "returncode": 0,
+      "seconds": 11.789337833004538,
+      "bytes": 3361
+    },
+    {
+      "name": "interactive",
+      "returncode": 0
+    }
+  ]
+}

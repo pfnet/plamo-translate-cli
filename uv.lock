@@ -1426,6 +1426,7 @@ name = "plamo-translate"
 version = "1.0.5"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
     { name = "mlx-lm", marker = "sys_platform == 'darwin'" },
     { name = "numba" },
@@ -1446,6 +1447,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.9.2" },
     { name = "mlx-lm", marker = "sys_platform == 'darwin'", specifier = ">=0.31.2,<0.32" },
     { name = "numba", specifier = ">=0.60.0" },
