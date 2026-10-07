@@ -1,0 +1,122 @@
+{
+  "source_model": "pfnet/plamo-2-translate",
+  "source_revision": "cae8da342a3e051ed69f90ce24c23eacff908732",
+  "precision": "8bit",
+  "quantization": {
+    "group_size": 64,
+    "bits": 8,
+    "mode": "affine"
+  },
+  "floating_weight_dtype": "bfloat16",
+  "recurrent_state_dtype": "float32",
+  "tensor_dtype_counts": {
+    "BF16": 597,
+    "U32": 162
+  },
+  "versions": {
+    "mlx": "0.31.1",
+    "mlx-lm": "0.31.2",
+    "transformers": "4.57.6"
+  },
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "device": {
+    "resource_limit": 499000,
+    "max_buffer_length": 41747087360,
+    "architecture": "applegpu_g13s",
+    "memory_size": 68719476736,
+    "max_recommended_working_set_size": 55662788608,
+    "device_name": "Apple M1 Max"
+  },
+  "scope": "One English-to-Japanese example; not a general translation-quality guarantee.",
+  "timing_context": "GPU isolation was not established; timings are observational.",
+  "input_sha256": "86312cdcb40e19e07a90cd8809d9ba657e09cc38309511d475cc936f93dafe5e",
+  "reference_sha256": "9035e02102f2f27455d59c57fe023bb221816b2ea15462201df2f9089e68b06f",
+  "generation": {
+    "temperature": 0,
+    "max_tokens": 2048,
+    "prefill_step_size": 512,
+    "prompt_tokens": 364
+  },
+  "standalone_model_class": "custom_model.Model",
+  "natural_and_structured_prompts_match": true,
+  "eos_token_ids": [
+    1,
+    4
+  ],
+  "runs": [
+    {
+      "elapsed_seconds": 29.2002008749987,
+      "generation_tps": 14.965701302598085,
+      "generation_tokens": 411,
+      "prompt_tps": 213.6229945949483,
+      "peak_memory_gb": 11.108345934,
+      "finish_reason": "stop",
+      "chrf": 73.93887471527466,
+      "paragraphs": 8,
+      "full_output_exact_match": true,
+      "output_sha256": "ffcf90a05ab3ab7dab97073987b21337ab46850486bc73d7efeeac5f84ff7c37"
+    },
+    {
+      "elapsed_seconds": 27.128428833035287,
+      "generation_tps": 16.263182532429102,
+      "generation_tokens": 411,
+      "prompt_tps": 197.50727104487362,
+      "peak_memory_gb": 11.10857531,
+      "finish_reason": "stop",
+      "chrf": 73.93887471527466,
+      "paragraphs": 8,
+      "full_output_exact_match": true,
+      "output_sha256": "ffcf90a05ab3ab7dab97073987b21337ab46850486bc73d7efeeac5f84ff7c37"
+    }
+  ],
+  "validated_files": {
+    "chat_template.jinja": {
+      "bytes": 1277,
+      "sha256": "f868ccf6bfe96f5988a8d1b9d9f297bfa958ebdd6167d9f1a483b1e1bc7d1d33"
+    },
+    "config.json": {
+      "bytes": 1455,
+      "sha256": "0f5d1b35c0348482f914ee50aaa23f96171e9bc60264a668024f8e90dd531e9f"
+    },
+    "generation_config.json": {
+      "bytes": 149,
+      "sha256": "3377c2d2548eb8715b4811a7592c6443f63143d6087e321d6489334dc23529ec"
+    },
+    "model-00001-of-00002.safetensors": {
+      "bytes": 5315437788,
+      "sha256": "f37b7cfd576026e868ed449bbf1669c1ec02750e546e61fa1cc2567b09b8c5b4"
+    },
+    "model-00002-of-00002.safetensors": {
+      "bytes": 4809466153,
+      "sha256": "47c1dc244104b1c858567ce3a0dc9a6f8d724902b144ac4e51ce0ef5026a53c2"
+    },
+    "model.safetensors.index.json": {
+      "bytes": 68586,
+      "sha256": "9b3cbdbad9145c950101e7712a11f5563c0e752ffeef17e8ea3812d6fe784827"
+    },
+    "modeling_mlx_plamo2.py": {
+      "bytes": 1952,
+      "sha256": "538e30d4911fa6708939c9d15a3b711976d96114cdaf74403a0bc14572972e1e"
+    },
+    "modeling_plamo.py": {
+      "bytes": 67985,
+      "sha256": "bbc2fe7264acba532a28e0aefa98be1445dc29d21e6ca44f9f96a0eb4b6d100a"
+    },
+    "special_tokens_map.json": {
+      "bytes": 587,
+      "sha256": "1004b03ad5c184693765d25d8d682e831727b43b84e321fc9dc14d9ef3d1466a"
+    },
+    "tokenization_plamo.py": {
+      "bytes": 16889,
+      "sha256": "ebddaf4cd8c4f7cde47d9e94a227a1cec7eccfbf303a70f520a3fda7c060abef"
+    },
+    "tokenizer.jsonl": {
+      "bytes": 10573745,
+      "sha256": "3af94303d6c676e875e13165abf4e4a9d42c663ef247a8985cdeedb223cc0681"
+    },
+    "tokenizer_config.json": {
+      "bytes": 2608,
+      "sha256": "0c7ffb950036aa1e829c0b70af23f908321a7a6fe8d3794b4b0ae530b2f1c0c8"
+    }
+  }
+}
