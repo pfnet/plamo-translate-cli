@@ -1,0 +1,21 @@
+{{- bos_token + '<|plamo:op|>dataset\ntranslation\n' -}}
+{%- for message in messages -%}
+    {%- set content = message['content'] -%}
+    {%- set structured = content.startswith('input lang=') or content.startswith('input\n') or content.startswith('output lang=') or content.startswith('output\n') -%}
+    {%- if structured -%}
+        {{- '<|plamo:op|>' + content -}}
+        {%- if not loop.last -%}{{- '\n' -}}{%- endif -%}
+    {%- elif message['role'] == 'user' -%}
+        {{- '<|plamo:op|>input lang=' + (source_language | default('Japanese|English')) + '\n' + content + '\n' -}}
+    {%- elif message['role'] == 'assistant' -%}
+        {{- '<|plamo:op|>output' -}}
+        {%- if target_language is defined and target_language -%}{{- ' lang=' + target_language -}}{%- endif -%}
+        {{- '\n' + content -}}
+        {%- if not loop.last -%}{{- '\n' -}}{%- endif -%}
+    {%- endif -%}
+    {%- if loop.last and add_generation_prompt and message['role'] != 'assistant' and not (structured and (content.startswith('output lang=') or content.startswith('output\n'))) -%}
+        {{- '<|plamo:op|>output' -}}
+        {%- if target_language is defined and target_language -%}{{- ' lang=' + target_language -}}{%- endif -%}
+        {{- '\n' -}}
+    {%- endif -%}
+{%- endfor -%}

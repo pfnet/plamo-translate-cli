@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--expected", type=Path, required=True)
+    parser.add_argument("--expected-precision", choices=["4bit", "6bit", "8bit", "mixed", "bf16"], default="4bit")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     source = Path("tests/fixtures/translation.en.txt").read_text().strip()
@@ -66,7 +67,7 @@ def main():
                     "runs": [],
                 }
                 assert config["model_name"] == args.model
-                assert config["precision"] == "4bit"
+                assert config["precision"] == args.expected_precision
                 for stream in (True, False):
                     started = time.perf_counter()
                     result = subprocess.run(
