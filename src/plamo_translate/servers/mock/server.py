@@ -59,4 +59,4 @@ class PLaMoTranslateServer(FastMCP):
             await context.report_progress(progress=index, total=1, message=chunk)
             await asyncio.sleep(0)
 
-        return ""
+        return translation
