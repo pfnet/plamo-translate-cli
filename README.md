@@ -162,7 +162,8 @@ uv run plamo-translate --from English --to Japanese < benchmarks/translation.en.
 `--model` accepts a local checkpoint directory or a Hugging Face repository and
 takes precedence over `PLAMO_TRANSLATE_CLI_MODEL_NAME`. Original weights are
 quantized once during loading; the source files are never modified. By default,
-original weights use 4bit and existing quantized checkpoints retain their precision.
+original weights use 4bit and exported checkpoints retain their declared precision,
+including unquantized BF16 exports.
 Request `--precision bf16` to retain the original weights. Changing a quantized
 checkpoint's precision requires loading the original weights again.
 
@@ -274,6 +275,71 @@ uv run python scripts/validate_mlx_cli.py \
 
 Reference implementations: [PFN checkpoint](https://huggingface.co/pfnet/plamo-2-translate)
 and [upstream MLX PLaMo 2](https://github.com/ml-explore/mlx-lm/blob/v0.31.2/mlx_lm/models/plamo2.py).
+
+#### Standalone 8bit and BF16 releases
+
+| Release | Published revision | Weight size | chrF | Verified files |
+| --- | --- | ---: | ---: | ---: |
+| 8bit | [`6b1851db`](https://huggingface.co/mlx-community/plamo-2-translate-8bit/tree/6b1851db9edd12c3b7a8b2c33f7505a87380a3ae) | 10.12 GB | 73.94 | 16 |
+| BF16 | [`bcc519c8`](https://huggingface.co/mlx-community/plamo-2-translate-bf16/tree/bcc519c834c0eb0f980168d48d1d9239e3dae175) | 19.06 GB | 73.46 | 18 |
+
+Both releases reproduce corrected direct inference at the same precision in two
+standalone runs and both CLI modes. chrF uses the supplied example only; BF16 still
+omits “Together with You” in the title. All published files match the validated
+local bytes. Full outputs and publication hashes are in
+[`benchmarks/releases/2026-10-07`](benchmarks/releases/2026-10-07).
+
+`--precision 8bit` selects `mlx-community/plamo-2-translate-8bit` and
+`--precision bf16` selects `mlx-community/plamo-2-translate-bf16` unless a model
+path or repository was explicitly provided. The exporter supports both precisions:
+
+```sh
+uv run python scripts/prepare_mlx_model.py \
+  --model /path/to/pfnet-plamo-2-translate --output /path/to/mlx-8bit --precision 8bit
+uv run python scripts/prepare_mlx_model.py \
+  --model /path/to/pfnet-plamo-2-translate --output /path/to/mlx-bf16 --precision bf16
+```
+
+Each export includes the standalone `modeling_mlx_plamo2.py`, a BOS-aware chat
+template, and both EOS IDs. BF16 export preserves the source floating weights
+without quantization; 8bit uses affine group-64 quantization while retaining BF16
+floating parameters. No FP16 activation conversion or experimental convolution is
+enabled. A saved BF16 export also retains its precision when loaded via `--model`
+without `--precision`.
+
+Validate against the full output of corrected direct inference at the same
+precision, then validate both CLI delivery modes:
+
+```sh
+uv run python scripts/validate_mlx_release.py \
+  --model /path/to/mlx-8bit --precision 8bit \
+  --source-revision cae8da342a3e051ed69f90ce24c23eacff908732 \
+  --expected /path/to/direct-8bit-translation.txt --output /path/to/validation-8bit
+uv run python scripts/validate_mlx_cli.py \
+  --model /path/to/mlx-8bit --expected-precision 8bit \
+  --expected /path/to/direct-8bit-translation.txt --output /path/to/cli-8bit
+```
+
+Use `bf16` and the corresponding source-precision output for BF16 validation.
+The standalone check calls `mlx_lm.load` directly, verifies identical structured
+and natural-message prompts, requires EOS, compares the complete output, and hashes
+every inference asset. Equality is with the same-precision implementation; it does
+not imply equality between 8bit and BF16 or with the supplied human reference.
+
+For publication, prepare the model card and license files, then run the local
+preflight below. Add `--upload` to publish using existing Hugging Face credentials:
+
+```sh
+uv run python scripts/publish_mlx_model.py \
+  --model /path/to/mlx-8bit --repo mlx-community/plamo-2-translate-8bit \
+  --validation /path/to/validation-8bit/validation.json \
+  --expected-head PREVIOUS_HUGGING_FACE_COMMIT --output /path/to/publication-8bit
+```
+
+Publication rejects modified inference files, guards against concurrent remote
+updates, removes obsolete weight shards in the same commit, and verifies remote
+SHA-256 values after upload. It uses an explicit file allowlist; local provenance
+paths and supplied translation text are excluded from the model repository.
 
 ## Supported Languages
 

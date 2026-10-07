@@ -1,0 +1,24 @@
+{
+  "model": "/Users/shunta/Models/pfnet--plamo-2-translate-mlx-bf16",
+  "startup_seconds": 17.618148542009294,
+  "config": {
+    "backend_type": "mlx",
+    "port": 31200,
+    "model_name": "/Users/shunta/Models/pfnet--plamo-2-translate-mlx-bf16",
+    "precision": "bf16"
+  },
+  "runs": [
+    {
+      "stream": true,
+      "elapsed_seconds": 35.397839540964924,
+      "exact_match_direct": true,
+      "chrf": 73.46372380757245
+    },
+    {
+      "stream": false,
+      "elapsed_seconds": 34.96151833300246,
+      "exact_match_direct": true,
+      "chrf": 73.46372380757245
+    }
+  ]
+}
