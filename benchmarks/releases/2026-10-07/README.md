@@ -26,3 +26,11 @@ standalone runs and both CLI modes passed. See `bf16/attempts.json`.
 `model-card.md` is the model card submitted to Hugging Face. `publication.json` records the
 resulting repository revision and verified remote file hashes. Supplied source/reference texts,
 translations, and local paths are not included in the Hugging Face upload allowlist.
+
+Upload transport: initial `hf-xet` 1.4.3 uploads repeatedly timed out while sharing
+the uplink with other transfers, before either repository changed. They were restarted sequentially
+with a process-local `uv run --with hf-xet==1.7.0` overlay (model/runtime dependencies
+were not changed), `HF_XET_FIXED_UPLOAD_CONCURRENCY=2`,
+`HF_XET_CLIENT_READ_TIMEOUT=600s`, `HF_XET_CLIENT_RETRY_MAX_DURATION=1800s`, and
+`HF_XET_DATA_MAX_CONCURRENT_FILE_INGESTION=1`. These are documented in
+[Hugging Face's Xet settings](https://huggingface.co/docs/hub/xet/using-xet-storage#environment-variables).

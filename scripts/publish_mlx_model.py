@@ -1,6 +1,7 @@
 """Publish a validated MLX release atomically, then verify the remote bytes."""
 
 import argparse
+import importlib.metadata
 import json
 from pathlib import Path
 
@@ -39,6 +40,12 @@ def main():
     if not args.upload:
         print(json.dumps({"preflight": "passed", "files": len(manifest), "bytes": sum(f["bytes"] for f in manifest.values())}))
         return
+    upload_versions = {}
+    for name in ("huggingface-hub", "hf-xet"):
+        try:
+            upload_versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            upload_versions[name] = None
     api = HfApi()
     api.auth_check(repo_id=args.repo, repo_type="model")
     info = api.model_info(args.repo, files_metadata=True)
@@ -62,7 +69,8 @@ def main():
         ),
     )
     published = {"repo_id": args.repo, "revision": commit.oid, "commit_url": commit.commit_url,
-                 "previous_head": args.expected_head, "deleted_stale_shards": stale}
+                 "previous_head": args.expected_head, "deleted_stale_shards": stale,
+                 "upload_versions": upload_versions}
     (args.output / "published.json").write_text(json.dumps(published, indent=2) + "\n")
     print(json.dumps(published), flush=True)
     remote = {f.rfilename: f for f in api.model_info(args.repo, revision=commit.oid, files_metadata=True).siblings}
