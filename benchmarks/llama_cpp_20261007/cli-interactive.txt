@@ -1,0 +1,6 @@
+History file /Users/shunta/.plamo_translate_history not found. Starting a new history file.
+Interactive mode enabled. Type your input below (Ctrl+D to exit).
+> こんにちは。
+> ありがとう。
+> 
+Ctrl+D received. Exiting.

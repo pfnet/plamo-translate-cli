@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Local inference builds and generated model weights
+.local/
+*.gguf

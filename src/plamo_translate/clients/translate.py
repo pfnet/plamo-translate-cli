@@ -69,6 +69,9 @@ class MCPClient:
                         },
                     )
 
+                    if response.isError:
+                        raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
+
                     # Extract text from response content
                     if response.content and len(response.content) > 0:
                         content = response.content[0]
@@ -101,6 +104,8 @@ class MCPClient:
                     },
                     progress_callback=progress_handler,
                 )
+                if response.isError:
+                    raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
                 # Put the final response in the queue if needed
                 if response.content and len(response.content) > 0:
                     content = response.content[0]
@@ -110,15 +115,21 @@ class MCPClient:
                 call_complete.set()
 
         # Start the tool call in the background
-        asyncio.create_task(call_tool_wrapper())
+        task = asyncio.create_task(call_tool_wrapper())
 
         # Yield messages as they arrive
-        chunks = []
-        while not call_complete.is_set() or not message_queue.empty():
-            try:
-                message = await asyncio.wait_for(message_queue.get(), timeout=0.1)
-                chunks.append(message)
-                yield message
-            except asyncio.TimeoutError:
-                # No message available, continue waiting
-                continue
+        try:
+            while not call_complete.is_set() or not message_queue.empty():
+                try:
+                    message = await asyncio.wait_for(message_queue.get(), timeout=0.1)
+                    yield message
+                except asyncio.TimeoutError:
+                    continue
+            await task
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass

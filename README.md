@@ -6,8 +6,7 @@ A command-line interface for translation using the plamo-2-translate model with 
 
 - Translate text between 16+ languages including Japanese, English, Chinese, Korean, and more
 - Simple command-line interface for easy integration into scripts and workflows
-- Supports various server backends (MLX, with planned support for Ollama and vLLM)
-  - Currently, optimized for macOS with Apple Silicon using MLX framework
+- MLX and native llama.cpp backends, including Metal acceleration on Apple Silicon
 
 ## Installation
 
@@ -175,6 +174,93 @@ $ plamo-translate server --precision 8bit
 ## Server Backends
 
 - mlx: Optimized for macOS with Apple Silicon (default on macOS)
+- llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool
+
+### llama.cpp on Apple Silicon
+
+Build the tested runtime from this checkout (requires Git, CMake and Xcode Command Line Tools):
+
+```sh
+bash scripts/build_llama_cpp.sh
+```
+
+The build pins llama.cpp `b11318` (`db33d3cb89d8b0d954df66047b13e9cc22df8f10`) and applies
+[`scripts/patches/llama-cpp-plamo2-rope.patch`](scripts/patches/llama-cpp-plamo2-rope.patch).
+This fixes a PLaMo 2 loader bug: when layer 0 is Mamba, the common loader sets the rotary
+dimension to zero, silently disabling RoPE. The patch restores the attention head dimension.
+An unpatched runtime can produce fluent translations with missing paragraphs even with F16 weights.
+The backend rejects a runtime that reports `n_rot = 0`. The pinned revision also includes the
+[PLaMo BOS/EOS tokenizer fix](https://github.com/ggml-org/llama.cpp/pull/29734).
+
+Convert the original local weights once; the original model directory is read only:
+
+```sh
+uv venv .local/convert-venv
+uv pip install --python .local/convert-venv/bin/python \
+  'torch==2.14.1' 'transformers==4.57.6' 'huggingface-hub<1' \
+  sentencepiece numpy safetensors protobuf -e .local/llama.cpp/gguf-py
+uv run python scripts/prepare_llama_cpp.py \
+  --model-dir /Users/shunta/Models/pfnet--plamo-2-translate \
+  --llama-cpp-dir .local/llama.cpp \
+  --python .local/convert-venv/bin/python \
+  --output-dir /Users/shunta/Models/pfnet--plamo-2-translate-gguf \
+  --quantization Q4_0-ssm-f16
+```
+
+Conversion saves F16 plus the requested quantizations, logs, checksums, source revision and a
+copy of the model license. It refuses to overwrite existing weights. F16 avoids low-bit weight
+quantization; activation and normalization arithmetic differ from MLX, so numerical equivalence
+is not assumed. Allow about 26 GB for F16 plus the recommended GGUF, in addition to the source.
+
+The recommended `Q4_0-ssm-f16` recipe uses Q4_0 with all Mamba `ssm_out` matrices kept in F16.
+On the tested M1 Max, this preserves content omitted by plain Q4_0 while keeping most of its speed.
+See [the measured comparison and full translations](benchmarks/llama_cpp_20261007/README.md).
+Other available recipes are Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q5_0, Q4_0 and Q4_1.
+
+Start a persistent server, then translate using the existing client:
+
+```sh
+uv run plamo-translate server --backend-type llama.cpp \
+  --llama-server .local/llama.cpp/build/bin/llama-server \
+  --model /Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf
+
+# In another terminal:
+uv run plamo-translate --from English --to Japanese < tests/fixtures/translation.en.txt
+```
+
+For one-shot use, omit `server` and pass the backend, executable and model options with the input.
+`--no-stream`, interactive translation, and `show-claude-config` work with either backend.
+A plain client reuses the running backend. Explicitly requesting a different model/backend fails
+without changing the running server's configuration. Use a separate `TMPDIR` to run both backends.
+The native process binds to loopback and is terminated when its owning MCP server exits.
+
+`--precision` selects MLX weights; for llama.cpp, choose the GGUF file with `--model`.
+`PLAMO_TRANSLATE_CLI_MODEL_NAME` can also specify the GGUF path, and
+`PLAMO_TRANSLATE_CLI_LLAMA_SERVER` can specify the executable.
+
+The llama.cpp defaults are full GPU offload (`--gpu-layers 99`), Flash Attention, F16 KV cache,
+one inference slot, a 32768-token context, 2048-token batches, 512-token microbatches, and 8 CPU threads.
+Override them with `--ctx-size`, `--batch-size`, `--ubatch-size`, `--threads`, `--gpu-layers`, and
+`--flash-attn on|off|auto`. Use `--gpu-layers 0` for CPU execution. Greedy decoding, disabled
+repetition penalty, the translation-specific prompt, and the model's BOS/EOS settings preserve
+the intended translation behavior. Prompt caching is disabled for repeatable independent requests.
+Token/context exhaustion and interrupted responses are reported as errors, including in streaming mode.
+
+Reproduce the supplied English/Japanese quality and speed comparison:
+
+```sh
+uv run --with sacrebleu python scripts/benchmark_llama_cpp.py \
+  --llama-server .local/llama.cpp/build/bin/llama-server \
+  --models /Users/shunta/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-{F16,Q4_0-ssm-f16}.gguf \
+  --repeats 2 --output .local/benchmark-new-run
+```
+
+The benchmark saves full translations, raw streaming events, native logs, time to first token,
+prompt/decode timings, and chrF against the supplied reference. It warms model weights with a
+separate short prompt and measures complete translations without reusing the prompt cache.
+Keep other GPU inference, quantization and media workloads idle while measuring.
+chrF is reference overlap for this single example; review the actual translations for missing
+content and do not interpret it as general translation accuracy.
 
 ## Options
 

@@ -29,7 +29,7 @@ os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 logger = logging.getLogger(__name__)
 
 
-def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = False) -> None:
+def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = False, llama_options=None) -> None:
     # To avoid showing warnings related to resource_tracker
     signal.signal(signal.SIGTERM, lambda _signal_number, _frame: exit(0))
     if os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") == "1":
@@ -48,6 +48,14 @@ def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = Fa
             server.run(transport="streamable-http")
         except Exception as e:
             print(f"Error during server running: {e}")
+    elif backend_type == "llama.cpp":
+        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions, PLaMoTranslateServer
+
+        server = PLaMoTranslateServer(log_level, LlamaCppOptions(**llama_options), show_progress)
+        try:
+            server.run(transport="streamable-http")
+        finally:
+            server.runtime.close()
     else:
         raise ValueError(f"Unsupported backend type: {backend_type}")
 
@@ -63,8 +71,15 @@ def check_server_running() -> bool:
     return False
 
 
-def wait_for_server_ready() -> None:
-    while not check_server_running():
+def wait_for_server_ready(process: multiprocessing.Process | None = None, timeout: float = 600) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        if process is not None and not process.is_alive():
+            raise RuntimeError(f"Translation server failed to start (exit code {process.exitcode}).")
+        if check_server_running():
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Timed out waiting for the translation server.")
         time.sleep(0.1)
 
 
@@ -72,11 +87,8 @@ async def print_translation(
     client: translate.MCPClient, messages: List[Dict[str, str]], stream: bool
 ) -> List[Dict[str, str]]:
     async for result in client.translate(messages):
-        if not stream:
-            print(result, end="", flush=True)
-        else:
-            messages[-1]["content"] += result
-            print(result, end="", flush=True)
+        messages[-1]["content"] += result
+        print(result, end="", flush=True)
 
     return messages
 
@@ -101,6 +113,7 @@ def run_translate(args: argparse.Namespace) -> None:
 
     messages: List[Dict[str, str]] = []
 
+    server = None
     if not check_server_running():
         if args.interactive:
             show_progress = True
@@ -108,11 +121,16 @@ def run_translate(args: argparse.Namespace) -> None:
             show_progress = False
         server = multiprocessing.Process(
             target=start_mcp_server,
-            args=(backend_type, "CRITICAL", show_progress),
+            args=(backend_type, "CRITICAL", show_progress, args.llama_options),
             daemon=True,
         )
         server.start()
-        wait_for_server_ready()
+        try:
+            wait_for_server_ready(server)
+        except BaseException:
+            server.terminate()
+            server.join(timeout=15)
+            raise
 
     client = translate.MCPClient(stream=stream)
 
@@ -174,11 +192,13 @@ def run_translate(args: argparse.Namespace) -> None:
             )
             asyncio.run(print_translation(client, messages, stream=args.stream))
 
-    except Exception as e:
-        raise e
-
     finally:
-        sys.exit(0)
+        if server is not None:
+            server.terminate()
+            server.join(timeout=15)
+            if server.is_alive():
+                server.kill()
+                server.join()
 
 
 def main() -> None:
@@ -212,18 +232,30 @@ def main() -> None:
     global_parser.add_argument(
         "--backend-type",
         type=str,
-        default="mlx",
-        choices=["mlx"],
-        help="Server backend to use (default: mlx on macOS, transformers elsewhere)",
+        default=None,
+        choices=["mlx", "llama.cpp"],
+        help="Server backend (default: reuse a running server, otherwise mlx)",
     )
     global_parser.add_argument(
         "--precision",
         "-p",
         type=str,
-        default="4bit",
+        default=None,
         choices=["4bit", "8bit", "bf16"],
         help="Model parameter's precision to use (default: 4bit)",
     )
+    global_parser.add_argument("--model", help="Local GGUF for llama.cpp, or MLX model path/repository")
+    global_parser.add_argument(
+        "--llama-server",
+        default=os.environ.get("PLAMO_TRANSLATE_CLI_LLAMA_SERVER", "llama-server"),
+        help="Path to the native llama-server executable",
+    )
+    global_parser.add_argument("--ctx-size", type=int, default=32768, help="llama.cpp context size")
+    global_parser.add_argument("--batch-size", type=int, default=2048, help="llama.cpp prompt batch size")
+    global_parser.add_argument("--ubatch-size", type=int, default=512, help="llama.cpp physical batch size")
+    global_parser.add_argument("--threads", type=int, default=8, help="llama.cpp CPU threads")
+    global_parser.add_argument("--gpu-layers", type=int, default=99, help="llama.cpp GPU layers (0 for CPU)")
+    global_parser.add_argument("--flash-attn", choices=["on", "off", "auto"], default="on")
     global_parser.add_argument(
         "--no-stream",
         action="store_true",
@@ -273,17 +305,54 @@ def main() -> None:
         os.environ["PLAMO_TRANSLATE_CLI_SERVER_LOG_LEVEL"] = "CRITICAL"
 
     args.stream = not args.no_stream
-    if args.backend_type == "mlx":
-        if args.precision == "4bit":
-            model_name = "mlx-community/plamo-2-translate"
-        elif args.precision == "8bit":
-            model_name = "mlx-community/plamo-2-translate-8bit"
-        elif args.precision == "bf16":
-            model_name = "mlx-community/plamo-2-translate-bf16"
+    config = update_config()
+    running = check_server_running()
+    args.backend_type = args.backend_type or (config.get("backend_type", "mlx") if running else "mlx")
+    if args.backend_type == "llama.cpp" and args.precision is not None:
+        parser.error("For llama.cpp, select precision with the GGUF passed to --model; --precision is for MLX.")
+    model_name = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")
+    if model_name is None and running and args.precision is None:
+        model_name = config.get("model_name")
+    if model_name is None and args.backend_type == "mlx":
+        model_name = {
+            "4bit": "mlx-community/plamo-2-translate",
+            "8bit": "mlx-community/plamo-2-translate-8bit",
+            "bf16": "mlx-community/plamo-2-translate-bf16",
+        }[args.precision or "4bit"]
+    if args.command != "show-claude-config" and model_name is None:
+        parser.error("llama.cpp requires --model /path/to/model.gguf (or PLAMO_TRANSLATE_CLI_MODEL_NAME).")
+    if args.backend_type == "llama.cpp" and model_name:
+        model_name = str(Path(model_name).expanduser().resolve())
+    if running and args.command != "show-claude-config":
+        existing_model = config.get("model_name")
+        if config.get("backend_type") == "llama.cpp" and existing_model:
+            existing_model = str(Path(existing_model).expanduser().resolve())
+        if config.get("backend_type", "mlx") != args.backend_type or existing_model != model_name:
+            parser.error("A different backend/model is already running. Stop it first, or use a separate TMPDIR.")
+    args.llama_options = None
+    if args.backend_type == "llama.cpp" and not running and args.command != "show-claude-config":
+        from dataclasses import asdict
 
-    update_config(backend_type=args.backend_type, model_name=model_name)
+        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions
 
-    if "PLAMO_TRANSLATE_CLI_MODEL_NAME" not in os.environ:
+        options = LlamaCppOptions(
+            model=model_name,
+            executable=args.llama_server,
+            ctx_size=args.ctx_size,
+            batch_size=args.batch_size,
+            ubatch_size=args.ubatch_size,
+            threads=args.threads,
+            gpu_layers=args.gpu_layers,
+            flash_attn=args.flash_attn,
+        )
+        try:
+            options.command(0)
+        except ValueError as exc:
+            parser.error(str(exc))
+        args.llama_options = asdict(options)
+    if not running and args.command != "show-claude-config":
+        update_config(backend_type=args.backend_type, model_name=model_name)
+    if model_name is not None:
         os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] = model_name
 
     if args.command == "server":
@@ -294,7 +363,7 @@ def main() -> None:
         while not check_server_running():
             try:
                 logger.info("Starting server...")
-                start_mcp_server(args.backend_type, "INFO", True)
+                start_mcp_server(args.backend_type, "INFO", True, args.llama_options)
                 logger.info("The server is running (Ctrl+C to stop)")
             except KeyboardInterrupt:
                 logger.error("\nCtrl+C received. Exiting.")
@@ -303,6 +372,8 @@ def main() -> None:
                 logger.error("\nCtrl+D received. Exiting.")
                 break
             except Exception as e:
+                if args.backend_type == "llama.cpp":
+                    parser.exit(1, f"Could not start llama.cpp: {e}\n")
                 logger.error(f"An error occurred: {str(e)}: {e}. Restarting server...")
 
     elif args.command == "show-claude-config":

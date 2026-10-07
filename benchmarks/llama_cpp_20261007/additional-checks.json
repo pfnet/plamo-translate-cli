@@ -1,0 +1,12 @@
+{
+  "oneshot": {
+    "output": "こんにちは、お元気ですか？\n",
+    "exit_code": 0
+  },
+  "generation_limit": {
+    "exit_code": 1,
+    "error_contains_truncated": true
+  },
+  "tests": "29 passed",
+  "owned_native_processes_remaining": 0
+}
