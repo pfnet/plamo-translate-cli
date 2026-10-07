@@ -2,6 +2,8 @@
 
 import numpy as np
 import pytest
+from dataclasses import asdict
+from types import SimpleNamespace
 
 mx = pytest.importorskip("mlx.core")
 nn = pytest.importorskip("mlx.nn")
@@ -10,6 +12,8 @@ from mlx_lm.models.plamo2 import Mamba, Model, ModelArgs  # noqa: E402
 
 from plamo_translate.servers.mlx.loader import quantize_translation_model  # noqa: E402
 from plamo_translate.servers.mlx.model import _fast_conv, _plamo_ssm, configure_model  # noqa: E402
+from plamo_translate.servers.mlx import loader  # noqa: E402
+from plamo_translate.servers.mlx.release import write_inference_assets  # noqa: E402
 
 
 def tiny_model():
@@ -114,3 +118,33 @@ def test_ssm_preserves_small_time_steps_and_fp32_state():
     assert cache[1].dtype == mx.float32
     actual = _plamo_ssm(mixer, x, B, C, dt, cache, None)
     np.testing.assert_allclose(np.array(actual), np.logaddexp(0, -20) * 64, rtol=1e-5)
+
+
+@pytest.mark.parametrize("saved,requested,expected", [("bf16", None, "bf16"), (None, None, "4bit"),
+                                                  ("bf16", "8bit", "8bit")])
+def test_loader_preserves_saved_bf16_unless_explicitly_overridden(monkeypatch, saved, requested, expected):
+    model = tiny_model()
+    config = {"model_type": "plamo2"}
+    if saved:
+        config["plamo_translate_precision"] = saved
+    tokenizer = SimpleNamespace(add_eos_token=lambda token: None)
+    monkeypatch.setattr(loader, "load", lambda *args, **kwargs: (model, tokenizer, config))
+    loaded, _, updated = loader.load_translation_model("unused", requested)
+    assert updated["plamo_translate_precision"] == expected
+    assert isinstance(loaded.lm_head, nn.QuantizedLinear) == (expected != "bf16")
+
+
+def test_standalone_export_matches_corrected_cli_model(tmp_path):
+    from mlx.utils import tree_flatten
+    from mlx_lm.utils import load_model
+
+    model = tiny_model()
+    config = {**asdict(model.config), "model_type": "plamo2", "rope_local_theta": 1000000, "rope_theta": 10000}
+    configure_model(model, config)
+    (tmp_path / "tokenizer_config.json").write_text("{}")
+    write_inference_assets(tmp_path, config, [1, 4])
+    mx.save_safetensors(str(tmp_path / "model.safetensors"), dict(tree_flatten(model.parameters())))
+    exported, _ = load_model(tmp_path)
+    assert type(exported).__module__ == "custom_model"
+    tokens = mx.array([[1, 2, 3, 4, 5]])
+    np.testing.assert_allclose(np.array(model(tokens)), np.array(exported(tokens)), atol=1e-6, rtol=1e-6)

@@ -15,6 +15,7 @@ def quantize_translation_model(model, config, precision: str):
     if precision == "bf16":
         if config.get("quantization"):
             raise ValueError("BF16 requires the original weights; quantized weights cannot recover BF16 accuracy")
+        config["plamo_translate_precision"] = "bf16"
         return model, config
     if precision not in ("4bit", "6bit", "8bit", "mixed"):
         raise ValueError(f"Unsupported precision: {precision}")
@@ -56,9 +57,11 @@ def load_translation_model(model_name: str, precision: str | None = None, *, opt
             tokenizer_config={"trust_remote_code": True, "chat_template": template},
         )
     configure_model(model, config, optimize=optimize)
-    # Existing quantization is authoritative unless explicitly overridden.
-    if precision is not None or not config.get("quantization"):
-        model, config = quantize_translation_model(model, config, precision or "4bit")
+    # Saved precision includes unquantized BF16 releases. Only unmarked source
+    # checkpoints default to 4bit; a BF16 export must not silently lose precision.
+    requested_precision = precision or config.get("plamo_translate_precision")
+    if requested_precision is not None or not config.get("quantization"):
+        model, config = quantize_translation_model(model, config, requested_precision or "4bit")
     mx.eval(model.parameters())
     tokenizer.add_eos_token("<|plamo:op|>")
     return model, tokenizer, config

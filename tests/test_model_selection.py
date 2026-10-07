@@ -48,3 +48,15 @@ def test_failed_child_startup_does_not_wait_forever(monkeypatch):
 
     with pytest.raises(RuntimeError, match="exited during model loading"):
         main.wait_for_server_ready(DeadProcess())
+
+
+@pytest.mark.parametrize("precision", ["8bit", "bf16"])
+def test_precision_selects_community_release(monkeypatch, precision):
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_PRECISION", raising=False)
+    monkeypatch.setattr(sys, "argv", ["plamo-translate", "--precision", precision, "--input", "hello"])
+    monkeypatch.setattr(main, "update_config", lambda **kwargs: {})
+    monkeypatch.setattr(main, "check_server_running", lambda: False)
+    monkeypatch.setattr(main, "run_translate", lambda args: None)
+    main.main()
+    assert main.os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] == f"mlx-community/plamo-2-translate-{precision}"

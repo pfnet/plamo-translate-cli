@@ -37,7 +37,7 @@ jobs:
       - name: Sync dependencies
         run: uv sync
       - name: Run tests
-        run: uv run pytest -s tests/test_cli.py tests/test_warning_filters.py tests/test_model_selection.py tests/test_streaming.py
+        run: uv run pytest -s tests/test_cli.py tests/test_warning_filters.py tests/test_model_selection.py tests/test_streaming.py tests/test_mlx_release.py
 
   mlx-integration-test:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
