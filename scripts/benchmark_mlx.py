@@ -37,7 +37,6 @@ def main():
     parser.add_argument("--reference", type=Path, default=Path("tests/fixtures/translation.ja.txt"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    processes_before = subprocess.check_output(["ps", "-axo", "pid,%cpu,%mem,etime,ucomm"], text=True)
     template = importlib.resources.files("plamo_translate.assets").joinpath("chat_template.jinja2").read_text()
     started = time.perf_counter()
     with suppress_optional_gpu_dependency_warnings():
@@ -126,8 +125,6 @@ def main():
             device=mx.device_info(),
             model_config=config,
             revision=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-            processes_before=processes_before,
-            processes_after=subprocess.check_output(["ps", "-axo", "pid,%cpu,%mem,etime,ucomm"], text=True),
             source_sha256=hashlib.sha256(source.encode()).hexdigest(),
             reference_sha256=hashlib.sha256(reference.encode()).hexdigest(),
             backend_sha256=hashlib.sha256(Path("src/plamo_translate/servers/mlx/model.py").read_bytes()).hexdigest(),

@@ -176,3 +176,10 @@ cython_debug/
 # Local inference builds and generated model weights
 .local/
 *.gguf
+
+# Only reviewed benchmark summaries belong in version control.
+# Store raw measurements, translations, logs and host metadata under .local/.
+/benchmarks/**
+!/benchmarks/**/
+!/benchmarks/**/README.md
+!/benchmarks/README.md

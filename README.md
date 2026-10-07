@@ -154,7 +154,7 @@ $ plamo-translate server --precision 8bit
 
 ```sh
 uv run plamo-translate server \
-  --model /path/to/home/Models/pfnet--plamo-2-translate --precision 4bit
+  --model ~/Models/pfnet--plamo-2-translate --precision 4bit
 uv run plamo-translate --from English --to Japanese < tests/fixtures/translation.en.txt
 ```
 
@@ -170,10 +170,10 @@ For faster subsequent startup, save a separate copy first:
 
 ```sh
 uv run python scripts/prepare_mlx_model.py \
-  --model /path/to/home/Models/pfnet--plamo-2-translate \
-  --output /path/to/home/Models/pfnet--plamo-2-translate-mlx-4bit \
+  --model ~/Models/pfnet--plamo-2-translate \
+  --output ~/Models/pfnet--plamo-2-translate-mlx-4bit \
   --precision 4bit
-uv run plamo-translate server --model /path/to/home/Models/pfnet--plamo-2-translate-mlx-4bit
+uv run plamo-translate server --model ~/Models/pfnet--plamo-2-translate-mlx-4bit
 ```
 
 `mixed` uses 4bit MLPs, 8bit attention/large Mamba projections and embeddings,
@@ -194,15 +194,15 @@ streaming also returns a final complete result to recover missing progress messa
 ```sh
 uv sync --locked
 uv run python scripts/benchmark_mlx.py \
-  --model /path/to/home/Models/pfnet--plamo-2-translate \
-  --precision 8bit --runs 3 --output benchmarks/results/my-8bit
+  --model ~/Models/pfnet--plamo-2-translate \
+  --precision 4bit --runs 3 --output .local/benchmarks/my-4bit
 ```
 
 The supplied full English/Japanese example is in `tests/fixtures/translation.en.txt`
 and `tests/fixtures/translation.ja.txt`. Each process runs a short warmup, then uses greedy
 decoding with a fresh cache for every measured run, and records the full translation, token IDs, EOS/length
 termination, load time, prompt/decode throughput, memory, package versions, backend
-hash, and process snapshots. A host lock prevents concurrent runs of this script;
+hash. A host lock prevents concurrent runs of this script;
 stop other GPU workloads while measuring. Timing excludes loading and warmup.
 
 Quality checks include chrF against the supplied reference (higher is better) and
@@ -251,9 +251,9 @@ floating weights/activations to FP16 was rejected: reference logits became nonfi
 the output repeated the unknown token and reached the 2048-token limit. No FP16
 conversion is applied by the production loader.
 
-Raw measurements and complete translations are in
-[`benchmarks/results`](benchmarks/results); the selected output is
-[`final-corrected-4bit/translation-0.txt`](benchmarks/results/final-corrected-4bit/translation-0.txt).
+Only reviewed summaries are versioned under [`benchmarks/`](benchmarks/README.md).
+Raw measurements, translations and logs stay in ignored `.local/` directories.
+The benchmark does not collect a machine-wide process list.
 The saved 4bit checkpoint is 5.36 GB. Reloading that checkpoint through the MCP server
 took 4.68 seconds; complete CLI translations took 10.64 seconds (streaming) and
 10.23 seconds (non-streaming), and both matched direct inference byte-for-byte.
@@ -267,9 +267,9 @@ Reproduce this check with:
 
 ```sh
 uv run python scripts/validate_mlx_cli.py \
-  --model /path/to/home/Models/pfnet--plamo-2-translate-mlx-4bit \
-  --expected benchmarks/results/final-corrected-4bit/translation-0.txt \
-  --output benchmarks/results/my-cli-roundtrip
+  --model ~/Models/pfnet--plamo-2-translate-mlx-4bit \
+  --expected .local/benchmarks/my-4bit/translation-0.txt \
+  --output .local/benchmarks/my-cli-roundtrip
 ```
 
 Reference implementations: [PFN checkpoint](https://huggingface.co/pfnet/plamo-2-translate)
@@ -285,7 +285,7 @@ and [upstream MLX PLaMo 2](https://github.com/ml-explore/mlx-lm/blob/v0.31.2/mlx
 Both releases reproduce corrected direct inference at the same precision in two
 standalone runs and both CLI modes. chrF uses the supplied example only; BF16 still
 omits “Together with You” in the title. All published files match the validated
-local bytes. Full outputs and publication hashes are in
+local bytes. A summary of the measurements and publication checks is in
 [`benchmarks/releases/2026-10-07`](benchmarks/releases/2026-10-07).
 
 `--precision 8bit` selects `mlx-community/plamo-2-translate-8bit` and
@@ -391,10 +391,10 @@ uv pip install --python .local/convert-venv/bin/python \
   'torch==2.14.1' 'transformers==4.57.6' 'huggingface-hub<1' \
   sentencepiece numpy safetensors protobuf -e .local/llama.cpp/gguf-py
 uv run python scripts/prepare_llama_cpp.py \
-  --model-dir /path/to/home/Models/pfnet--plamo-2-translate \
+  --model-dir ~/Models/pfnet--plamo-2-translate \
   --llama-cpp-dir .local/llama.cpp \
   --python .local/convert-venv/bin/python \
-  --output-dir /path/to/home/Models/pfnet--plamo-2-translate-gguf \
+  --output-dir ~/Models/pfnet--plamo-2-translate-gguf \
   --quantization Q4_0-ssm-f16
 ```
 
@@ -405,7 +405,7 @@ is not assumed. Allow about 26 GB for F16 plus the recommended GGUF, in addition
 
 The recommended `Q4_0-ssm-f16` recipe uses Q4_0 with all Mamba `ssm_out` matrices kept in F16.
 On the tested M1 Max, this preserves content omitted by plain Q4_0 while keeping most of its speed.
-See [the measured comparison and full translations](benchmarks/llama_cpp_20261007/README.md).
+See [the measured comparison and quality summary](benchmarks/llama_cpp_20261007/README.md).
 Other available recipes are Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q5_0, Q4_0 and Q4_1.
 
 Start a persistent server, then translate using the existing client:
@@ -413,7 +413,7 @@ Start a persistent server, then translate using the existing client:
 ```sh
 uv run plamo-translate server --backend-type llama.cpp \
   --llama-server .local/llama.cpp/build/bin/llama-server \
-  --model /path/to/home/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf
+  --model ~/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-Q4_0-ssm-f16.gguf
 
 # In another terminal:
 uv run plamo-translate --from English --to Japanese < tests/fixtures/translation.en.txt
@@ -442,7 +442,7 @@ Reproduce the supplied English/Japanese quality and speed comparison:
 ```sh
 uv run --with sacrebleu python scripts/benchmark_llama_cpp.py \
   --llama-server .local/llama.cpp/build/bin/llama-server \
-  --models /path/to/home/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-{F16,Q4_0-ssm-f16}.gguf \
+  --models ~/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-{F16,Q4_0-ssm-f16}.gguf \
   --repeats 2 --output .local/benchmark-new-run
 ```
 
