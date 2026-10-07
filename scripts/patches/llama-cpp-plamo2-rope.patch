@@ -1,0 +1,15 @@
+diff --git a/src/models/plamo2.cpp b/src/models/plamo2.cpp
+index ba1cea146..2deac361a 100644
+--- a/src/models/plamo2.cpp
++++ b/src/models/plamo2.cpp
+@@ -15,6 +15,10 @@ void llama_model_plamo2::load_arch_hparams(llama_model_loader & ml) {
+     ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH,   hparams.n_embd_head_k_full, false);
+     ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH, hparams.n_embd_head_v_full, false);
+ 
++    // Layer 0 can be recurrent, so the common loader leaves n_rot at zero.
++    hparams.n_rot_full = hparams.n_embd_head_k_full;
++    ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT, hparams.n_rot_full, false);
++
+     for (uint32_t i = 0; i < hparams.n_layer(); ++i) {
+         hparams.is_recr_impl[i] = hparams.n_head_kv(i) == 0;
+     }

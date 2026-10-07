@@ -69,7 +69,7 @@ class MCPClient:
                         },
                     )
                     if response.isError:
-                        raise RuntimeError(str(response.content))
+                        raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
 
                     # Extract text from response content
                     if response.content and len(response.content) > 0:
@@ -106,7 +106,7 @@ class MCPClient:
                     progress_callback=progress_handler,
                 )
                 if response.isError:
-                    raise RuntimeError(str(response.content))
+                    raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
                 # Updated servers return the complete text; older servers return
                 # an empty string. Only emit the part not received as progress.
                 if response.content and len(response.content) > 0:

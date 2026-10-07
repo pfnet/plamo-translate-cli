@@ -37,6 +37,7 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
+    "httpx>=0.27",
     "mcp[cli]>=1.9.2",
     "numba>=0.60.0",
     "mlx-lm>=0.31.2,<0.32 ; sys_platform == 'darwin'",
