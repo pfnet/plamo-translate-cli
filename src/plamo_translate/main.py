@@ -244,7 +244,7 @@ def main() -> None:
         type=str,
         default=None,
         choices=["4bit", "6bit", "8bit", "mixed", "bf16"],
-        help="MLX precision (default: 4bit for original weights; preserve prequantized checkpoints)",
+        help="MLX precision (default: 4bit for original weights; preserve exported checkpoints)",
     )
     global_parser.add_argument("--model", help="Local GGUF for llama.cpp, or MLX model path/repository")
     global_parser.add_argument(
@@ -320,7 +320,7 @@ def main() -> None:
         model_name = {
             "4bit": "mlx-community/plamo-2-translate",
             "8bit": "mlx-community/plamo-2-translate-8bit",
-            "bf16": "pfnet/plamo-2-translate",
+            "bf16": "mlx-community/plamo-2-translate-bf16",
             "6bit": "pfnet/plamo-2-translate",
             "mixed": "pfnet/plamo-2-translate",
         }[precision or "4bit"]

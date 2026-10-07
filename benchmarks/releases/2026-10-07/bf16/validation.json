@@ -1,0 +1,125 @@
+{
+  "source_model": "pfnet/plamo-2-translate",
+  "source_revision": "cae8da342a3e051ed69f90ce24c23eacff908732",
+  "precision": "bf16",
+  "quantization": null,
+  "floating_weight_dtype": "bfloat16",
+  "recurrent_state_dtype": "float32",
+  "tensor_dtype_counts": {
+    "BF16": 435
+  },
+  "versions": {
+    "mlx": "0.31.1",
+    "mlx-lm": "0.31.2",
+    "transformers": "4.57.6"
+  },
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "device": {
+    "resource_limit": 499000,
+    "max_buffer_length": 41747087360,
+    "architecture": "applegpu_g13s",
+    "memory_size": 68719476736,
+    "max_recommended_working_set_size": 55662788608,
+    "device_name": "Apple M1 Max"
+  },
+  "scope": "One English-to-Japanese example; not a general translation-quality guarantee.",
+  "timing_context": "GPU isolation was not established; timings are observational.",
+  "input_sha256": "86312cdcb40e19e07a90cd8809d9ba657e09cc38309511d475cc936f93dafe5e",
+  "reference_sha256": "9035e02102f2f27455d59c57fe023bb221816b2ea15462201df2f9089e68b06f",
+  "generation": {
+    "temperature": 0,
+    "max_tokens": 2048,
+    "prefill_step_size": 512,
+    "prompt_tokens": 364
+  },
+  "standalone_model_class": "custom_model.Model",
+  "natural_and_structured_prompts_match": true,
+  "eos_token_ids": [
+    1,
+    4
+  ],
+  "runs": [
+    {
+      "elapsed_seconds": 26.953763540950604,
+      "generation_tps": 16.036413917100234,
+      "generation_tokens": 415,
+      "prompt_tps": 341.98067643957205,
+      "peak_memory_gb": 19.872517664,
+      "finish_reason": "stop",
+      "chrf": 73.46372380757245,
+      "paragraphs": 8,
+      "full_output_exact_match": true,
+      "output_sha256": "44869c70e1005bd8c7500acd97340cc19aaefc7930ebd9a2d864deb7ea33f7d7"
+    },
+    {
+      "elapsed_seconds": 26.94478162500309,
+      "generation_tps": 16.0383501038591,
+      "generation_tokens": 415,
+      "prompt_tps": 343.7814536392675,
+      "peak_memory_gb": 19.860365954,
+      "finish_reason": "stop",
+      "chrf": 73.46372380757245,
+      "paragraphs": 8,
+      "full_output_exact_match": true,
+      "output_sha256": "44869c70e1005bd8c7500acd97340cc19aaefc7930ebd9a2d864deb7ea33f7d7"
+    }
+  ],
+  "validated_files": {
+    "chat_template.jinja": {
+      "bytes": 1277,
+      "sha256": "f868ccf6bfe96f5988a8d1b9d9f297bfa958ebdd6167d9f1a483b1e1bc7d1d33"
+    },
+    "config.json": {
+      "bytes": 1282,
+      "sha256": "df61d0a3e249b631f1e626a72b220550a7afa489fb01f5af1869d8c5fb57c472"
+    },
+    "generation_config.json": {
+      "bytes": 149,
+      "sha256": "3377c2d2548eb8715b4811a7592c6443f63143d6087e321d6489334dc23529ec"
+    },
+    "model-00001-of-00004.safetensors": {
+      "bytes": 5314468919,
+      "sha256": "4dd44c2e9cb8ae334ca8d09c491a71159af49caf095c51009cd8e628134e2722"
+    },
+    "model-00002-of-00004.safetensors": {
+      "bytes": 5302386511,
+      "sha256": "99783b8a8b8344bd6b0befe3cec4ec675f5dbb11efcd8776ee7d4cd6f57eb70e"
+    },
+    "model-00003-of-00004.safetensors": {
+      "bytes": 5308745258,
+      "sha256": "e2054831da6872d7e6ec7ed021d3ca20385188af988121e38117128ce455f7e6"
+    },
+    "model-00004-of-00004.safetensors": {
+      "bytes": 3130920119,
+      "sha256": "24d690cd4fd33450bb9ce07f7fea5267c8a90a3af8b151bcde7617537b86099d"
+    },
+    "model.safetensors.index.json": {
+      "bytes": 39008,
+      "sha256": "5a76d5cbe7129c58300ec7cade8752db134f2b6d9fd24b59b7b61c09641edfba"
+    },
+    "modeling_mlx_plamo2.py": {
+      "bytes": 1952,
+      "sha256": "538e30d4911fa6708939c9d15a3b711976d96114cdaf74403a0bc14572972e1e"
+    },
+    "modeling_plamo.py": {
+      "bytes": 67985,
+      "sha256": "bbc2fe7264acba532a28e0aefa98be1445dc29d21e6ca44f9f96a0eb4b6d100a"
+    },
+    "special_tokens_map.json": {
+      "bytes": 587,
+      "sha256": "1004b03ad5c184693765d25d8d682e831727b43b84e321fc9dc14d9ef3d1466a"
+    },
+    "tokenization_plamo.py": {
+      "bytes": 16889,
+      "sha256": "ebddaf4cd8c4f7cde47d9e94a227a1cec7eccfbf303a70f520a3fda7c060abef"
+    },
+    "tokenizer.jsonl": {
+      "bytes": 10573745,
+      "sha256": "3af94303d6c676e875e13165abf4e4a9d42c663ef247a8985cdeedb223cc0681"
+    },
+    "tokenizer_config.json": {
+      "bytes": 2608,
+      "sha256": "0c7ffb950036aa1e829c0b70af23f908321a7a6fe8d3794b4b0ae530b2f1c0c8"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "prior_attempts": [
+    {
+      "status": "aborted_before_generation",
+      "error": "Metal Insufficient Memory",
+      "concurrent_workload": "An Ollama llama-server process used about 35 GB resident memory.",
+      "interpretation": "Resource contention; no output or speed result was accepted."
+    }
+  ]
+}
