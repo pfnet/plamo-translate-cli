@@ -63,8 +63,10 @@ def check_server_running() -> bool:
     return False
 
 
-def wait_for_server_ready() -> None:
+def wait_for_server_ready(process: multiprocessing.Process | None = None) -> None:
     while not check_server_running():
+        if process is not None and not process.is_alive():
+            raise RuntimeError(f"Translation server exited during model loading (exit code {process.exitcode})")
         time.sleep(0.1)
 
 
@@ -112,7 +114,7 @@ def run_translate(args: argparse.Namespace) -> None:
             daemon=True,
         )
         server.start()
-        wait_for_server_ready()
+        wait_for_server_ready(server)
 
     client = translate.MCPClient(stream=stream)
 
@@ -177,9 +179,6 @@ def run_translate(args: argparse.Namespace) -> None:
     except Exception as e:
         raise e
 
-    finally:
-        sys.exit(0)
-
 
 def main() -> None:
     global_parser = argparse.ArgumentParser(add_help=False)
@@ -217,12 +216,18 @@ def main() -> None:
         help="Server backend to use (default: mlx on macOS, transformers elsewhere)",
     )
     global_parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Local checkpoint directory or Hugging Face repository (overrides the model environment variable)",
+    )
+    global_parser.add_argument(
         "--precision",
         "-p",
         type=str,
-        default="4bit",
-        choices=["4bit", "8bit", "bf16"],
-        help="Model parameter's precision to use (default: 4bit)",
+        default=None,
+        choices=["4bit", "6bit", "8bit", "mixed", "bf16"],
+        help="Weight precision (default: 4bit for original weights; preserve prequantized checkpoints)",
     )
     global_parser.add_argument(
         "--no-stream",
@@ -273,18 +278,27 @@ def main() -> None:
         os.environ["PLAMO_TRANSLATE_CLI_SERVER_LOG_LEVEL"] = "CRITICAL"
 
     args.stream = not args.no_stream
-    if args.backend_type == "mlx":
-        if args.precision == "4bit":
-            model_name = "mlx-community/plamo-2-translate"
-        elif args.precision == "8bit":
-            model_name = "mlx-community/plamo-2-translate-8bit"
-        elif args.precision == "bf16":
-            model_name = "mlx-community/plamo-2-translate-bf16"
+    precision = args.precision or os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION")
+    model_names = {
+        "4bit": "mlx-community/plamo-2-translate",
+        "8bit": "mlx-community/plamo-2-translate-8bit",
+        "bf16": "pfnet/plamo-2-translate",
+        "6bit": "pfnet/plamo-2-translate",
+        "mixed": "pfnet/plamo-2-translate",
+    }
+    model_name = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME") or model_names[precision or "4bit"]
+    os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] = model_name
+    if precision is not None:
+        os.environ["PLAMO_TRANSLATE_CLI_PRECISION"] = precision
+    update_config(backend_type=args.backend_type)
 
-    update_config(backend_type=args.backend_type, model_name=model_name)
-
-    if "PLAMO_TRANSLATE_CLI_MODEL_NAME" not in os.environ:
-        os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] = model_name
+    # Do not silently serve a model different from an explicitly requested one.
+    if (args.model or args.precision) and check_server_running():
+        running = update_config()
+        if running.get("model_name") != model_name or (precision is not None and running.get("precision") != precision):
+            parser.error(
+                "A server with different model settings is running; stop it before changing --model/--precision"
+            )
 
     if args.command == "server":
         logging.basicConfig(level=logging.INFO)
@@ -303,7 +317,8 @@ def main() -> None:
                 logger.error("\nCtrl+D received. Exiting.")
                 break
             except Exception as e:
-                logger.error(f"An error occurred: {str(e)}: {e}. Restarting server...")
+                logger.error(f"Server failed: {e}")
+                raise
 
     elif args.command == "show-claude-config":
         cmd = subprocess.run(["which", "npx"], check=True, capture_output=True, text=True)
