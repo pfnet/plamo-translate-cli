@@ -149,6 +149,131 @@ You can specify the precision of the model weight by giving a `--precision` opti
 ```sh
 $ plamo-translate server --precision 8bit
 ```
+
+#### Use original local weights with the optimized MLX backend
+
+```sh
+uv run plamo-translate server \
+  --model /Users/shunta/Models/pfnet--plamo-2-translate --precision 4bit
+uv run plamo-translate --from English --to Japanese < benchmarks/translation.en.txt
+```
+
+`--model` accepts a local checkpoint directory or a Hugging Face repository and
+takes precedence over `PLAMO_TRANSLATE_CLI_MODEL_NAME`. Original weights are
+quantized once during loading; the source files are never modified. By default,
+original weights use 4bit and existing quantized checkpoints retain their precision.
+Request `--precision bf16` to retain the original weights. Changing a quantized
+checkpoint's precision requires loading the original weights again.
+
+For faster subsequent startup, save a separate copy first:
+
+```sh
+uv run python scripts/prepare_mlx_model.py \
+  --model /Users/shunta/Models/pfnet--plamo-2-translate \
+  --output /Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit \
+  --precision 4bit
+uv run plamo-translate server --model /Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit
+```
+
+`mixed` uses 4bit MLPs, 8bit attention/large Mamba projections and embeddings,
+and original precision for the small Mamba state projections. `4bit` and `6bit`
+are also available. These settings change model numerics and may change translations.
+Stop an existing server before changing its model or precision.
+
+The backend honors the checkpoint's local/full-attention RoPE bases and PLaMo's
+unclipped SSM time steps, keeps recurrent state in FP32, and preserves the original BF16 activation dtype.
+An experimental fused decode convolution is available with
+`PLAMO_TRANSLATE_CLI_OPTIMIZE=1`; it is disabled by default because measured speed
+was indistinguishable from the upstream convolution and rounding changed some tokens.
+The prompt includes the checkpoint's BOS token. GPU requests are serialized;
+streaming also returns a final complete result to recover missing progress messages.
+
+#### Reproduce the translation benchmark
+
+```sh
+uv sync --locked
+uv run python scripts/benchmark_mlx.py \
+  --model /Users/shunta/Models/pfnet--plamo-2-translate \
+  --precision 8bit --runs 3 --output benchmarks/results/my-8bit
+```
+
+The supplied full English/Japanese example is in `benchmarks/translation.en.txt`
+and `benchmarks/translation.ja.txt`. Each process runs a short warmup, then uses greedy
+decoding with a fresh cache for every measured run, and records the full translation, token IDs, EOS/length
+termination, load time, prompt/decode throughput, memory, package versions, backend
+hash, and process snapshots. A host lock prevents concurrent runs of this script;
+stop other GPU workloads while measuring. Timing excludes loading and warmup.
+
+Quality checks include chrF against the supplied reference (higher is better) and
+teacher-forced reference negative log likelihood (NLL, lower is better). They measure
+this one example, not general translation accuracy; also inspect omissions, names,
+paragraphs and repetition in the saved output. `--implementation corrected` (the default) uses
+the production backend; `optimized` enables the experimental convolution; `stock --legacy-prompt`
+reproduces the upstream model and old CLI prompt. The benchmark also supports
+`--dtype float16` as an explicit numerical experiment.
+
+#### Measured result (2026-10-07)
+
+Apple M1 Max, 32 GPU cores, 64 GB; MLX 0.31.1 / mlx-lm 0.31.2,
+Python 3.13.15. Source checkpoint revision:
+`cae8da342a3e051ed69f90ce24c23eacff908732`. Two warm runs per setting,
+batch size 1, temperature 0, prefill chunk 512, full supplied example.
+Other llama.cpp workloads were stopped for the final comparison.
+
+| Setting | Decode tok/s (median) | Full generation seconds (median) | chrF ↑ | Reference NLL ↓ | Peak GB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Old model implementation + old prompt, same source quantized to 4bit | 51.32 | 9.58 | 64.70 | 0.6030 | 6.56 |
+| **Selected: corrected model + BOS, 4bit/BF16 activations** | **51.44** | **9.61** | **73.77** | **0.4595** | **6.57** |
+| Corrected model + BOS, original BF16 weights | 15.38 | 28.49 | 73.46 | 0.4919 | 19.87 |
+| Experimental fused convolution, 8bit/BF16 activations | 31.52 | 14.72 | 73.54 | 0.4936 | 11.11 |
+| Experimental fused convolution, mixed/BF16 activations | 42.56 | 11.23 | 72.71 | 0.4861 | 8.05 |
+
+The selected 4bit mode retains the old 4bit speed while improving this example's
+quality. Quantization accounts for most of the speed advantage over original BF16
+weights. BF16 timing varied (13.45–17.32 tok/s); selected 4bit runs were
+51.41–51.46 tok/s. These are local measurements, not a claim of globally optimal
+speed or unchanged accuracy on other documents/languages. The old-model comparison
+uses the same original checkpoint quantized locally, not a different community revision.
+
+The selected output has all eight paragraphs, the title's “Together with You”,
+the partner/social-implementation paragraph, both founders, and “Learn or Die”.
+The old output dropped the title and the separate partner paragraph. The selected
+output is not identical to the reference: it still includes awkward wording such
+as `真に価値ある価値`, and uses `あなたと共に` rather than the reference's `皆様と共に`.
+The original BF16 output also omitted the title's “Together with You”.
+One reference cannot establish general quality; use 8bit/BF16 when validating other
+material if small quantization changes are unacceptable.
+
+The experimental fused convolution was not selected: 51.66 versus 51.44 tok/s is
+too small a difference to establish a win, and its output changed. Converting all
+floating weights/activations to FP16 was rejected: reference logits became nonfinite,
+the output repeated the unknown token and reached the 2048-token limit. No FP16
+conversion is applied by the production loader.
+
+Raw measurements and complete translations are in
+[`benchmarks/results`](benchmarks/results); the selected output is
+[`final-corrected-4bit/translation-0.txt`](benchmarks/results/final-corrected-4bit/translation-0.txt).
+The saved 4bit checkpoint is 5.36 GB. Reloading that checkpoint through the MCP server
+took 4.68 seconds; complete CLI translations took 10.64 seconds (streaming) and
+10.23 seconds (non-streaming), and both matched direct inference byte-for-byte.
+The selected weights are published at
+[`mlx-community/plamo-2-translate`](https://huggingface.co/mlx-community/plamo-2-translate/tree/900f34ccc16d4e8592b1baa38889e2f53f6717e8).
+That revision includes the corrected standalone MLX implementation and BOS/EOS
+settings. Its output matched the selected translation exactly, and all 15 published
+files were verified by SHA-256. This release uses ordinary affine quantization;
+it replaces the previous DWQ-labeled release, whose quality was not compared here.
+Reproduce this check with:
+
+```sh
+uv run python scripts/validate_mlx_cli.py \
+  --model /Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit \
+  --expected benchmarks/results/final-corrected-4bit/translation-0.txt \
+  --output benchmarks/results/my-cli-roundtrip
+```
+
+Reference implementations: [PFN checkpoint](https://huggingface.co/pfnet/plamo-2-translate)
+and [upstream MLX PLaMo 2](https://github.com/ml-explore/mlx-lm/blob/v0.31.2/mlx_lm/models/plamo2.py).
+
 ## Supported Languages
 
 - Japanese
@@ -267,7 +392,8 @@ content and do not interpret it as general translation accuracy.
 - --input TEXT Input text to translate
 - --from TEXT Input language for translation (default: English)
 - --to TEXT Output language for translation (default: Japanese)
-- --precision Model weight precision to use. You can select from: [4bit, 8bit, bf16] (default: 4bit)
+- --model Local model directory or Hugging Face repository
+- --precision Model weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
 
 ## Configuration
 
@@ -275,6 +401,11 @@ You can configure the following parameters using environment variables:
 
 - `PLAMO_TRANSLATE_CLI_SERVER_START_PORT`: Specifies the starting port number for the server.
 - `PLAMO_TRANSLATE_CLI_SERVER_END_PORT`: Specifies the ending port number for the server.
+- `PLAMO_TRANSLATE_CLI_MODEL_NAME`: Local model directory or Hugging Face repository.
+- `PLAMO_TRANSLATE_CLI_PRECISION`: Explicit weight precision, equivalent to `--precision`.
+- `PLAMO_TRANSLATE_CLI_OPTIMIZE`: Set to `1` to opt in to the experimental decode convolution (default: `0`; correctness fixes are always enabled).
+- `PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE`: Prompt chunk size (default: 512).
+- `PLAMO_MAX_TOKENS`: Maximum generated tokens (default: 32768). Reaching this limit reports an incomplete translation error.
 - `PLAMO_TRANSLATE_CLI_TEMP`: Sets the temperature for text generation.
 - `PLAMO_TRANSLATE_CLI_TOP_P`: Sets the top-p (nucleus) sampling probability.
 - `PLAMO_TRANSLATE_CLI_TOP_K`: Sets the top-k sampling number.

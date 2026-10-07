@@ -224,6 +224,7 @@ def test_plain_client_reuses_running_llama_backend(monkeypatch, tmp_path):
     main = importlib.import_module("plamo_translate.main")
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
+    monkeypatch.setenv("PLAMO_TRANSLATE_CLI_PRECISION", "8bit")
     update_config(backend_type="llama.cpp", model_name="/tmp/model.gguf", port=30000)
     monkeypatch.setattr(main, "check_server_running", lambda: True)
     monkeypatch.setattr(sys, "argv", ["plamo-translate", "--input", "hello"])

@@ -1,0 +1,56 @@
+{
+  "source_path": "/Users/shunta/Models/pfnet--plamo-2-translate",
+  "source_hf_revision": "cae8da342a3e051ed69f90ce24c23eacff908732",
+  "source_files": {
+    "config.json": {
+      "bytes": 1184,
+      "sha256": "b38b2e9233346ff808840e0d53309406ac3b5dd7fbca91317b72429ac2061d53"
+    },
+    "model.safetensors.index.json": {
+      "bytes": 37217,
+      "sha256": "1e28c827a896063a6e21f4e81b064ac4169741c64ce6db04a24be0f2c6a26d98"
+    },
+    "tokenizer_config.json": {
+      "bytes": 1425,
+      "sha256": "5194084b19d0155a08e087dfc40e32e76ffd401e3d2ac09e6c0179a71d187832"
+    }
+  },
+  "saved_model": "/Users/shunta/Models/pfnet--plamo-2-translate-mlx-4bit",
+  "saved_weights_bytes": 5361354089,
+  "saved_tensor_dtype_counts": {
+    "BF16": 597,
+    "U32": 162
+  },
+  "selected_measurement": "final-corrected-4bit/results.json",
+  "end_to_end_validation": "cli-roundtrip/results.json",
+  "validation": {
+    "unit_and_mock_tests_passed": 28,
+    "ruff": "passed",
+    "wheel_and_sdist_build": "passed",
+    "final_gpu_trials_sequential": true
+  },
+  "limits": [
+    "Only the supplied English to Japanese example was evaluated.",
+    "chrF and reference likelihood do not establish general translation accuracy.",
+    "Output still contains wording differences and an awkward phrase.",
+    "Exploratory and contended trials are excluded from the final comparison."
+  ],
+  "published_model": {
+    "repo_id": "mlx-community/plamo-2-translate",
+    "revision": "900f34ccc16d4e8592b1baa38889e2f53f6717e8",
+    "weights_sha256": "b914ce3193ccac7eb261d4f8cb7edb13a3d9d1372bc301b1a219acbe5e246013",
+    "verified_file_count": 15,
+    "all_file_hashes_matched": true,
+    "standalone_validation": {
+      "standalone_model_class": "custom_model.Model",
+      "prompt_tokens": 364,
+      "eos_token_ids": [
+        1,
+        4
+      ],
+      "finish_reason": "stop",
+      "full_output_exact_match": true,
+      "output_sha256": "c048d030ca9b1d3b25a8760f6cce6fb7483439b33dcab73a77a09b09bbd4776f"
+    }
+  }
+}

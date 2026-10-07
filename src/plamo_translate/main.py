@@ -75,7 +75,9 @@ def wait_for_server_ready(process: multiprocessing.Process | None = None, timeou
     deadline = time.monotonic() + timeout
     while True:
         if process is not None and not process.is_alive():
-            raise RuntimeError(f"Translation server failed to start (exit code {process.exitcode}).")
+            raise RuntimeError(
+                f"Translation server failed to start: exited during model loading (exit code {process.exitcode})."
+            )
         if check_server_running():
             return
         if time.monotonic() >= deadline:
@@ -241,8 +243,8 @@ def main() -> None:
         "-p",
         type=str,
         default=None,
-        choices=["4bit", "8bit", "bf16"],
-        help="Model parameter's precision to use (default: 4bit)",
+        choices=["4bit", "6bit", "8bit", "mixed", "bf16"],
+        help="MLX precision (default: 4bit for original weights; preserve prequantized checkpoints)",
     )
     global_parser.add_argument("--model", help="Local GGUF for llama.cpp, or MLX model path/repository")
     global_parser.add_argument(
@@ -310,15 +312,18 @@ def main() -> None:
     args.backend_type = args.backend_type or (config.get("backend_type", "mlx") if running else "mlx")
     if args.backend_type == "llama.cpp" and args.precision is not None:
         parser.error("For llama.cpp, select precision with the GGUF passed to --model; --precision is for MLX.")
+    precision = (args.precision or os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION")) if args.backend_type == "mlx" else None
     model_name = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")
-    if model_name is None and running and args.precision is None:
+    if model_name is None and running and precision is None:
         model_name = config.get("model_name")
     if model_name is None and args.backend_type == "mlx":
         model_name = {
             "4bit": "mlx-community/plamo-2-translate",
             "8bit": "mlx-community/plamo-2-translate-8bit",
-            "bf16": "mlx-community/plamo-2-translate-bf16",
-        }[args.precision or "4bit"]
+            "bf16": "pfnet/plamo-2-translate",
+            "6bit": "pfnet/plamo-2-translate",
+            "mixed": "pfnet/plamo-2-translate",
+        }[precision or "4bit"]
     if args.command != "show-claude-config" and model_name is None:
         parser.error("llama.cpp requires --model /path/to/model.gguf (or PLAMO_TRANSLATE_CLI_MODEL_NAME).")
     if args.backend_type == "llama.cpp" and model_name:
@@ -329,6 +334,10 @@ def main() -> None:
             existing_model = str(Path(existing_model).expanduser().resolve())
         if config.get("backend_type", "mlx") != args.backend_type or existing_model != model_name:
             parser.error("A different backend/model is already running. Stop it first, or use a separate TMPDIR.")
+        if args.backend_type == "mlx" and precision is not None and config.get("precision") != precision:
+            parser.error("A server with different precision is running; stop it before changing --precision.")
+    if args.backend_type == "mlx" and precision is not None:
+        os.environ["PLAMO_TRANSLATE_CLI_PRECISION"] = precision
     args.llama_options = None
     if args.backend_type == "llama.cpp" and not running and args.command != "show-claude-config":
         from dataclasses import asdict
@@ -374,7 +383,8 @@ def main() -> None:
             except Exception as e:
                 if args.backend_type == "llama.cpp":
                     parser.exit(1, f"Could not start llama.cpp: {e}\n")
-                logger.error(f"An error occurred: {str(e)}: {e}. Restarting server...")
+                logger.error(f"Server failed: {e}")
+                raise
 
     elif args.command == "show-claude-config":
         cmd = subprocess.run(["which", "npx"], check=True, capture_output=True, text=True)

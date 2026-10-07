@@ -68,7 +68,6 @@ class MCPClient:
                             "stream": False,
                         },
                     )
-
                     if response.isError:
                         raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
 
@@ -85,12 +84,14 @@ class MCPClient:
     async def _translate_stream(self, session: ClientSession, request: TranslateRequest):
         """Handle streaming translation responses."""
         # Use a queue to pass messages from progress_handler to the generator
-        message_queue: asyncio.Queue[str] = asyncio.Queue()
-        call_complete = asyncio.Event()
+        message_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        received = ""
 
         async def progress_handler(progress: float, total: float | None, message: str | None) -> None:
             """Handle progress updates which might contain partial translations."""
+            nonlocal received
             if message:
+                received += message
                 await message_queue.put(message)
 
         async def call_tool_wrapper():
@@ -106,25 +107,23 @@ class MCPClient:
                 )
                 if response.isError:
                     raise RuntimeError("; ".join(c.text for c in response.content if isinstance(c, TextContent)))
-                # Put the final response in the queue if needed
+                # Updated servers return the complete text; older servers return
+                # an empty string. Only emit the part not received as progress.
                 if response.content and len(response.content) > 0:
                     content = response.content[0]
-                    if isinstance(content, TextContent):
-                        await message_queue.put(content.text)
+                    if isinstance(content, TextContent) and content.text:
+                        if not content.text.startswith(received):
+                            raise RuntimeError("Final translation differs from streamed progress")
+                        if suffix := content.text[len(received) :]:
+                            await message_queue.put(suffix)
             finally:
-                call_complete.set()
+                await message_queue.put(None)
 
         # Start the tool call in the background
         task = asyncio.create_task(call_tool_wrapper())
-
-        # Yield messages as they arrive
         try:
-            while not call_complete.is_set() or not message_queue.empty():
-                try:
-                    message = await asyncio.wait_for(message_queue.get(), timeout=0.1)
-                    yield message
-                except asyncio.TimeoutError:
-                    continue
+            while (message := await message_queue.get()) is not None:
+                yield message
             await task
         finally:
             if not task.done():
