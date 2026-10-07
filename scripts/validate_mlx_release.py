@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--precision", required=True, choices=["4bit", "8bit", "bf16"])
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--runs", default=2, type=int)
+    parser.add_argument("--timing-context", default="GPU isolation was not established; timings are observational.")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
@@ -103,6 +104,7 @@ def main():
         "versions": {name: importlib.metadata.version(name) for name in ("mlx", "mlx-lm", "transformers")},
         "platform": platform.platform(), "device": mx.device_info(),
         "scope": "One English-to-Japanese example; not a general translation-quality guarantee.",
+        "timing_context": args.timing_context,
         "input_sha256": hashlib.sha256(source.encode()).hexdigest(),
         "reference_sha256": hashlib.sha256(reference.encode()).hexdigest(),
         "generation": {"temperature": 0, "max_tokens": 2048, "prefill_step_size": 512, "prompt_tokens": len(prompt)},
