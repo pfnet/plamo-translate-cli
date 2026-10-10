@@ -1,9 +1,11 @@
 """Small numerical regression tests; no model downloads are needed."""
 
-import numpy as np
-import pytest
+import json
 from dataclasses import asdict
 from types import SimpleNamespace
+
+import numpy as np
+import pytest
 
 mx = pytest.importorskip("mlx.core")
 nn = pytest.importorskip("mlx.nn")
@@ -148,3 +150,37 @@ def test_standalone_export_matches_corrected_cli_model(tmp_path):
     assert type(exported).__module__ == "custom_model"
     tokens = mx.array([[1, 2, 3, 4, 5]])
     np.testing.assert_allclose(np.array(model(tokens)), np.array(exported(tokens)), atol=1e-6, rtol=1e-6)
+
+
+def test_loader_does_not_import_pytorch_model_config_for_tokenizer(tmp_path):
+    """Issue #27: tokenizer loading must work without the checkpoint's torch model."""
+    from mlx.utils import tree_flatten
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+
+    model = tiny_model()
+    config = {
+        **asdict(model.config),
+        "model_type": "plamo2",
+        "plamo_translate_precision": "bf16",
+        "auto_map": {"AutoConfig": "modeling_requires_torch.Plamo2Config"},
+    }
+    (tmp_path / "config.json").write_text(json.dumps(config))
+    (tmp_path / "modeling_requires_torch.py").write_text(
+        "raise AssertionError('The PyTorch model configuration must not be imported')\n"
+    )
+    mx.save_safetensors(str(tmp_path / "model.safetensors"), dict(tree_flatten(model.parameters())))
+    vocab = {"<unk>": 0, "<|plamo:op|>": 1, "hello": 2}
+    Tokenizer(WordLevel(vocab, unk_token="<unk>")).save(str(tmp_path / "tokenizer.json"))
+    (tmp_path / "tokenizer_config.json").write_text(json.dumps({
+        "tokenizer_class": "PreTrainedTokenizerFast", "unk_token": "<unk>", "eos_token": "<|plamo:op|>",
+    }))
+
+    loaded, tokenizer, actual_config = loader.load_translation_model(str(tmp_path))
+
+    assert tokenizer.encode("hello", add_special_tokens=False) == [2]
+    assert tokenizer.decode([2]) == "hello"
+    assert 1 in tokenizer.eos_token_ids
+    assert "plamo:op" in tokenizer.chat_template
+    assert actual_config["auto_map"] == config["auto_map"]
+    assert not isinstance(loaded.lm_head, nn.QuantizedLinear)

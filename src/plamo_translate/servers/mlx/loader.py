@@ -6,6 +6,7 @@ import sys
 
 import mlx.core as mx
 from mlx_lm.utils import load, quantize_model
+from transformers import PreTrainedConfig
 
 from plamo_translate.servers.mlx.model import configure_model
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
@@ -54,7 +55,15 @@ def load_translation_model(model_name: str, precision: str | None = None, *, opt
             model_name,
             lazy=True,
             return_config=True,
-            tokenizer_config={"trust_remote_code": True, "chat_template": template},
+            tokenizer_config={
+                "trust_remote_code": True,
+                "chat_template": template,
+                # Transformers 5 resolves AutoConfig before the tokenizer. The
+                # checkpoint's AutoConfig imports its PyTorch model, which MLX
+                # does not need. Select the tokenizer from tokenizer_config.json
+                # while leaving the actual model configuration to mlx-lm.
+                "config": PreTrainedConfig(),
+            },
         )
     configure_model(model, config, optimize=optimize)
     # Saved precision includes unquantized BF16 releases. Only unmarked source

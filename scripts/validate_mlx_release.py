@@ -14,6 +14,7 @@ import mlx.core as mx
 from mlx_lm import load, stream_generate
 from mlx_lm.sample_utils import make_sampler
 from sacrebleu.metrics import CHRF
+from transformers import PreTrainedConfig
 
 from plamo_translate.servers.mlx.release import file_digest, inference_files
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
@@ -53,7 +54,9 @@ def main():
     expected = args.expected.read_text()
     # Deliberately bypass the CLI loader: model_file must supply every correction.
     with suppress_optional_gpu_dependency_warnings():
-        model, tokenizer = load(str(args.model), tokenizer_config={"trust_remote_code": True})
+        model, tokenizer = load(
+            str(args.model), tokenizer_config={"trust_remote_code": True, "config": PreTrainedConfig()}
+        )
     assert type(model).__module__ == "custom_model"
     assert model.layers[0].mixer._ssm.__func__.__module__ == "custom_model"
     assert model.config.rope_local_theta == 1000000

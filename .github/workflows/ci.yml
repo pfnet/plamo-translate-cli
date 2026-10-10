@@ -12,6 +12,73 @@ jobs:
       - name: Allow only benchmark summaries
         run: python3 scripts/check_benchmark_content.py
 
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build distribution
+        run: |
+          python -m pip install build
+          python -m build --wheel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
+  wheel-install:
+    needs: build-wheel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    env:
+      PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '1'
+      PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '30'
+      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '15'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+      - name: Install wheel in a clean environment outside the checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          echo "$RUNNER_TEMP/wheel-venv/bin" >> "$GITHUB_PATH"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install --upgrade pip
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install --report "$RUNNER_TEMP/install-report.json" "$GITHUB_WORKSPACE"/dist/*.whl
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip check
+      - name: Check installed package and CLI before adding test dependencies
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -I -c 'import pathlib, sys, plamo_translate; assert pathlib.Path(plamo_translate.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve())'
+          plamo-translate --version
+          plamo-translate server --help
+      - name: Test the installed wheel
+        run: |
+          cp -R tests "$RUNNER_TEMP/wheel-tests"
+          cd "$RUNNER_TEMP"
+          python -m pip --isolated install pytest
+          python -m pip check
+          python -I -m pytest -q wheel-tests --ignore=wheel-tests/test_cli_integration.py
+      - name: Save resolved package versions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-report-${{ matrix.os }}-${{ matrix.python-version }}
+          path: ${{ runner.temp }}/install-report.json
+
   mock-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -42,37 +109,33 @@ jobs:
       - name: Add uv to PATH
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Sync dependencies
-        run: uv sync
+        run: uv sync --locked
       - name: Run tests
         run: uv run pytest -s tests/test_cli.py tests/test_llama_cpp.py tests/test_warning_filters.py tests/test_model_selection.py tests/test_streaming.py tests/test_mlx_release.py
 
   mlx-integration-test:
+    needs: build-wheel
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: macos-latest
     timeout-minutes: 45
     env:
-      HF_HOME: .cache/hf
-      HUGGINGFACE_HUB_CACHE: .cache/hf/hub
+      HF_HOME: ${{ github.workspace }}/.cache/hf
+      HUGGINGFACE_HUB_CACHE: ${{ github.workspace }}/.cache/hf/hub
       PLAMO_TRANSLATE_CLI_MODEL_NAME: mlx-community/plamo-2-translate
       PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-2-translate
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
       PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
-      UV_CACHE_DIR: .cache/uv
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Cache uv downloads
-        uses: actions/cache@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: ${{ env.UV_CACHE_DIR }}
-          key: ${{ runner.os }}-uv-py3.13-${{ hashFiles('uv.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-py3.13-
-            ${{ runner.os }}-uv-
+          name: wheel
+          path: dist
       - name: Cache Hugging Face models
         uses: actions/cache@v4
         with:
@@ -81,11 +144,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-hf-${{ env.PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY }}-
             ${{ runner.os }}-hf-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Add uv to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - name: Sync dependencies
-        run: uv sync
-      - name: Run integration tests
-        run: uv run pytest -s tests/test_mlx_backend.py tests/test_cli_integration.py
+      - name: Install wheel and test runner
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          echo "$RUNNER_TEMP/wheel-venv/bin" >> "$GITHUB_PATH"
+          cp -R tests "$RUNNER_TEMP/wheel-tests"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install --upgrade pip
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install "$GITHUB_WORKSPACE"/dist/*.whl
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip check
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install pytest
+      - name: Run real-model tests against the installed wheel
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
