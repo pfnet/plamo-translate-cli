@@ -69,7 +69,7 @@ jobs:
         run: |
           cp -R tests "$RUNNER_TEMP/wheel-tests"
           cd "$RUNNER_TEMP"
-          python -m pip --isolated install pytest
+          python -m pip --isolated install pytest 'jinja2>=3.1.0'
           python -m pip check
           python -I -m pytest -q wheel-tests --ignore=wheel-tests/test_cli_integration.py
       - name: Save resolved package versions
