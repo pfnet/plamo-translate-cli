@@ -17,6 +17,7 @@ import mlx.nn as nn
 from mlx_lm import load, stream_generate
 from mlx_lm.sample_utils import make_sampler
 from sacrebleu.metrics import CHRF
+from transformers import PreTrainedConfig
 
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
 
@@ -42,7 +43,7 @@ def main():
     with suppress_optional_gpu_dependency_warnings():
         model, tokenizer, config = load(
             args.model,
-            tokenizer_config={"trust_remote_code": True, "chat_template": template},
+            tokenizer_config={"trust_remote_code": True, "chat_template": template, "config": PreTrainedConfig()},
             lazy=True,
             return_config=True,
         )
