@@ -1,6 +1,6 @@
 # plamo-translate-cli
 
-A command-line interface for translation using the plamo-2-translate model with local execution.
+A command-line interface for local translation powered by plamo-2-translate, a PFN™ translation model
 
 ## Features
 
