@@ -1,7 +1,7 @@
 [project]
 name = "plamo-translate"
-version = "1.1.1"
-description = "A command-line interface for translation using the plamo-2-translate model with local execution."
+version = "1.1.1.post1"
+description = "A command-line interface for local translation powered by plamo-2-translate, a PFN™ translation model"
 readme = "README.md"
 authors = [
     { name = "Shunta Saito", email = "shunta@preferred.jp" },
