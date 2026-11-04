@@ -35,16 +35,31 @@ LANGUAGE_CODES = {
 }
 
 _MESSAGE = re.compile(r"(input|output)(?: lang=([^\n]*))?\n(.*)", re.DOTALL)
-_JAPANESE = re.compile(r"[぀-ヿ㐀-鿿ｦ-ﾟ]")
+_JAPANESE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]")
 _ALPHABET = re.compile(r"[A-Za-z]")
 
 
+def checkpoint_config(name: str) -> dict | None:
+    """config.json of a local checkpoint directory or a Hugging Face repository."""
+    local = Path(name).expanduser()
+    if local.is_dir():
+        config = local / "config.json"
+        return json.loads(config.read_text()) if config.is_file() else None
+    try:
+        from huggingface_hub import hf_hub_download
+
+        config = hf_hub_download(name, "config.json")
+    except Exception:
+        # Not a repository, or offline without a cached copy: the PLaMo 2 loader reports it.
+        return None
+    return json.loads(Path(config).read_text())
+
+
 def is_plamo3_checkpoint(name: str | None) -> bool:
-    """Only local checkpoints are recognized; this never contacts a model hub."""
     if not name:
         return False
-    config = Path(name).expanduser() / "config.json"
-    return config.is_file() and json.loads(config.read_text()).get("model_type") == "plamo3"
+    config = checkpoint_config(name)
+    return config is not None and config.get("model_type") == "plamo3"
 
 
 def _code(language: str) -> str:

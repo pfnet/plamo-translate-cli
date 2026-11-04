@@ -277,7 +277,9 @@ def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = Fals
     if config.get("model_type") != "plamo3":
         raise ValueError(f"Expected a PLaMo 3 checkpoint, got {config.get('model_type')}")
     if config.get("quantization"):
-        raise ValueError("PLaMo 3 needs the original weights; pass --precision to quantize them on load")
+        raise ValueError(
+            "PLaMo 3 needs original weights such as pfnet/plamo-3-translate-2b; they are quantized on load"
+        )
     model = Model(ModelArgs.from_dict(config))
     weights = {}
     for shard in sorted(path.glob("model*.safetensors")):

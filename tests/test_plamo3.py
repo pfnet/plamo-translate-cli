@@ -230,7 +230,13 @@ def test_prompt_rejects_invalid_messages(messages):
         pfml3_prompt([message(content) for content in messages])
 
 
-def test_only_local_plamo3_checkpoints_are_recognized(tmp_path):
+def test_plamo3_checkpoints_are_recognized_locally_and_on_the_hub(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    def unavailable(repository, filename):
+        raise huggingface_hub.errors.RepositoryNotFoundError(repository)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", unavailable)
     assert not is_plamo3_checkpoint(None)
     assert not is_plamo3_checkpoint("some/remote-repository")
     assert not is_plamo3_checkpoint(str(tmp_path))
@@ -238,3 +244,12 @@ def test_only_local_plamo3_checkpoints_are_recognized(tmp_path):
     assert not is_plamo3_checkpoint(str(tmp_path))
     (tmp_path / "config.json").write_text(json.dumps({"model_type": "plamo3"}))
     assert is_plamo3_checkpoint(str(tmp_path))
+    downloads = []
+
+    def download(repository, filename):
+        downloads.append((repository, filename))
+        return str(tmp_path / filename)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", download)
+    assert is_plamo3_checkpoint("pfnet/plamo-3-translate-2b")
+    assert downloads == [("pfnet/plamo-3-translate-2b", "config.json")]

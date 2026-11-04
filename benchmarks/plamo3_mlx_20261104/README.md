@@ -1,5 +1,9 @@
 # PLaMo 3 Translate 2B on fused Metal kernels, 2026-11-04
 
+Source: `pfnet/plamo-3-translate-2b` at `355637cc04db67195ba87a97da85eaf1d52a22e8`. The measured copy
+has byte-identical weights, configuration and tokenizer. On 2026-11-05 the downloaded repository reproduced
+the same outputs at 161 and 167 tok/s on the shared machine.
+
 Apple M1 Max, 32 GPU cores, 64 GB; MLX 0.31.1, mlx-lm 0.31.2. Greedy decoding through
 `Plamo3Translator.stream`, three runs per direction of the fixtures in `tests/fixtures`
 (380 and 405 prompt tokens, about 350 to 390 generated tokens). Only the median is summarized.
