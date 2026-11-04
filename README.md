@@ -367,6 +367,22 @@ paths and supplied translation text are excluded from the model repository.
 - mlx: Optimized for macOS with Apple Silicon (default on macOS)
 - llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool
 
+### PLaMo 3 checkpoints on Apple Silicon
+
+Pass a local directory holding an original PLaMo 3 translation checkpoint. Weights are quantized when loaded, and the checkpoint type is read from its `config.json` without contacting a model hub:
+
+```sh
+plamo-translate --model /path/to/plamo-3-translate --from English --to Japanese --input "Hello"
+```
+
+`--precision 4bit` (default) and `bf16` run on fused Metal kernels; `bf16` computes in FP16, which keeps more mantissa bits than BF16. Other precisions use plain MLX ops. On startup one decoded step is compared with plain MLX ops, and the server falls back to them with a warning if the kernels disagree. With `English|Japanese` the direction is chosen from the source text, since PLaMo 3 needs an explicit target language.
+
+Measurements and limitations are in the [benchmark summary](benchmarks/plamo3_mlx_20261104/README.md). Reproduce them with:
+
+```sh
+uv run python scripts/benchmark_plamo3.py --model /path/to/plamo-3-translate --output .local/benchmarks/plamo3-4bit
+```
+
 ### llama.cpp on Apple Silicon
 
 Build the tested runtime from this checkout (requires Git, CMake and Xcode Command Line Tools):
