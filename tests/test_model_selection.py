@@ -111,3 +111,10 @@ def test_mcp_request_with_only_target_language_builds_plamo3_prompt(content, sou
         "<|plamo:bos|><|plamo:tag|>dataset<|plamo:msg|>translation"
         f"{source}<|plamo:tag|>output<|plamo:key|>lang<|plamo:val|>ja<|plamo:msg|>"
     )
+
+
+def test_plamo3_prompt_without_bos_for_runtimes_that_add_it():
+    messages = [Message(role="user", content="input\nHello."), Message(role="user", content="output lang=Japanese\n")]
+    with_bos = pfml3_prompt(messages)
+    assert with_bos.startswith("<|plamo:bos|><|plamo:tag|>dataset")
+    assert pfml3_prompt(messages, bos=False) == with_bos.removeprefix("<|plamo:bos|>")

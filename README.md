@@ -6,7 +6,7 @@ A command-line interface for local translation powered by plamo-3-translate-2b, 
 
 - Translate text between 16+ languages including Japanese, English, Chinese, Korean, and more
 - Simple command-line interface for easy integration into scripts and workflows
-- MLX and native llama.cpp backends, including Metal acceleration on Apple Silicon
+- MLX and native llama.cpp backends, including Metal acceleration on Apple Silicon; both run PLaMo 3
 - PLaMo 3 Translate 2B by default; PLaMo 2 Translate remains available with `--model`
 
 ## Installation
@@ -43,6 +43,7 @@ source .venv/bin/activate
     - numba
   - On macOS:
     - mlx-lm
+- For the llama.cpp backend: `llama-server` from llama.cpp b11960 (0.8.0) or newer, for example `brew install llama.cpp`
 
 ## Usage
 
@@ -54,6 +55,10 @@ The first run downloads its original weights (5.76 GB) into the Hugging Face cac
 load quantizes them to 4bit or to the precision given with `--precision`; `bf16` skips quantization
 and computes in FP16. The model is distributed under the
 [PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-en).
+
+With `--backend-type llama.cpp`, the default is the official GGUF
+[`pfnet/plamo-3-translate-2b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF) at Q4_K_M (1.81 GB),
+which loads without conversion. See [PLaMo 3 on llama.cpp](#plamo-3-on-llamacpp).
 
 PLaMo 2 remains available. Pass its repository with `--model`, or set
 `PLAMO_TRANSLATE_CLI_MODEL_NAME` to use it for every run:
@@ -395,7 +400,8 @@ and experimental groups below describe PLaMo 2.
 ## Server Backends
 
 - mlx: Optimized for macOS with Apple Silicon (default on macOS)
-- llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool
+- llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool.
+  It starts in about a second, and with a draft model it decodes PLaMo 3 at about 130 tok/s on M1 Max
 
 ### PLaMo 3 checkpoints on Apple Silicon
 
@@ -416,28 +422,76 @@ Measurements and limitations are in the [benchmark summary](benchmarks/plamo3_ml
 uv run python scripts/benchmark_plamo3.py --model pfnet/plamo-3-translate-2b --output .local/benchmarks/plamo3-4bit
 ```
 
-### llama.cpp on Apple Silicon
+### PLaMo 3 on llama.cpp
+
+Install llama.cpp b11960 (0.8.0) or newer, for example with `brew install llama.cpp`, or build the tested
+revision as described [below](#llamacpp-runtime-and-plamo-2-ggufs). Then select the backend:
+
+```sh
+plamo-translate --backend-type llama.cpp --from English --to Japanese --input "Hello"
+```
+
+The first run downloads `pfnet/plamo-3-translate-2b-GGUF` Q4_K_M (1.81 GB) into the Hugging Face cache. Later runs
+start `llama-server` in about a second; the first launch after installing llama.cpp also compiles its Metal shaders,
+which took about 8 seconds on M1 Max. `--model` accepts a local GGUF file, or a Hugging Face GGUF repository
+followed by an optional quantization or file name:
+
+```sh
+plamo-translate --backend-type llama.cpp --model pfnet/plamo-3-translate-2b-GGUF:Q4_0 --input "Hello"
+plamo-translate --backend-type llama.cpp --model /path/to/model.gguf --input "Hello"
+```
+
+`plamo-translate server --backend-type llama.cpp` and interactive mode also load
+[`pfnet/plamo-3-translate-0.8b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) Q4_0 (0.55 GB) as a
+draft model for speculative decoding: it proposes up to six tokens, and the 2B model checks them in one batch.
+One-shot translations skip it, because loading it takes longer than it saves on a single document. Pass
+`--draft-model <GGUF or repository>` to use a draft anyway, or `--draft-model none` to disable it. With `--model`,
+no draft is loaded unless `--draft-model` is given.
+
+Measured on M1 Max with the English fixture ([summary](benchmarks/llama_cpp_plamo3_20261105/README.md)):
+
+| GGUF | Draft | Decode tok/s | Translation s |
+| --- | --- | ---: | ---: |
+| Q4_K_M (default) | none | 111 | 3.82 |
+| Q4_K_M | 0.8B Q4_0 | 132 | 3.26 |
+| Q4_0 | none | 134 | 3.12 |
+| Q4_0 | 0.8B Q4_0 | 141 | 2.99 |
+
+The draft did not change any output. Before these settings the backend decoded Q4_K_M at 76 tok/s; greedy decoding
+no longer runs the CPU-side top-p and min-p filters over the whole vocabulary. The fused MLX kernels still decode
+faster (170 tok/s), but a complete one-shot CLI translation of a short sentence took 2.4 seconds with llama.cpp and
+6 to 7 seconds with MLX, which quantizes the original weights on every load.
+
+Q4_K_M is the default because the model card reports Q4_0 0.90 chrF++ lower than BF16 on FLORES+ translation between
+Japanese and other languages, while both stay within 0.0011 of BF16 on its English–Japanese metrics.
+
+A BF16 GGUF converted from the original weights translated both fixtures byte-identically to the MLX FP16 backend.
+llama.cpp ignores the GGUF's `yarn_truncate = false` and rounds the YaRN correction range of the three full-attention
+layers; on the fixtures this changed FP32 logits by a mean KL divergence below 1e-4, far less than 4bit quantization.
+
+### llama.cpp runtime and PLaMo 2 GGUFs
 
 Build the tested runtime from this checkout (requires Git, CMake and Xcode Command Line Tools):
 
 ```sh
 bash scripts/build_llama_cpp.sh
+uv run plamo-translate --backend-type llama.cpp --llama-server .local/llama.cpp/build/bin/llama-server --input "Hello"
 ```
 
-The build pins llama.cpp `b11318` (`db33d3cb89d8b0d954df66047b13e9cc22df8f10`) and applies
-[`scripts/patches/llama-cpp-plamo2-rope.patch`](scripts/patches/llama-cpp-plamo2-rope.patch).
-This fixes a PLaMo 2 loader bug: when layer 0 is Mamba, the common loader sets the rotary
+The build pins llama.cpp `b11960` (`8642541b255bfb5dc39cd351a178be09013a55d6`), the revision of Homebrew's
+llama.cpp 0.8.0, and applies [`scripts/patches/llama-cpp-plamo2-rope.patch`](scripts/patches/llama-cpp-plamo2-rope.patch).
+The patch is only needed for PLaMo 2. It fixes a loader bug: when layer 0 is Mamba, the common loader sets the rotary
 dimension to zero, silently disabling RoPE. The patch restores the attention head dimension.
 An unpatched runtime can produce fluent translations with missing paragraphs even with F16 weights.
-The backend rejects a runtime that reports `n_rot = 0`. The pinned revision also includes the
-[PLaMo BOS/EOS tokenizer fix](https://github.com/ggml-org/llama.cpp/pull/29734).
+The backend rejects a runtime that reports `n_rot = 0`, so use this build rather than Homebrew's for PLaMo 2.
 
-Convert the original local weights once; the original model directory is read only:
+Official PLaMo 3 GGUFs need no conversion. To convert other PLaMo 2 or PLaMo 3 checkpoints, convert the original
+local weights once; the original model directory is read only:
 
 ```sh
 uv venv .local/convert-venv
 uv pip install --python .local/convert-venv/bin/python \
-  'torch==2.14.1' 'transformers==4.57.6' 'huggingface-hub<1' \
+  'torch==2.11.0' 'transformers==4.57.6' 'huggingface-hub<1' \
   sentencepiece numpy safetensors protobuf -e .local/llama.cpp/gguf-py
 uv run python scripts/prepare_llama_cpp.py \
   --model-dir ~/Models/pfnet--plamo-2-translate \
@@ -447,15 +501,16 @@ uv run python scripts/prepare_llama_cpp.py \
   --quantization Q4_0-ssm-f16
 ```
 
-Conversion saves F16 plus the requested quantizations, logs, checksums, source revision and a
-copy of the model license. It refuses to overwrite existing weights. F16 avoids low-bit weight
-quantization; activation and normalization arithmetic differ from MLX, so numerical equivalence
-is not assumed. Allow about 26 GB for F16 plus the recommended GGUF, in addition to the source.
+Conversion saves an unquantized GGUF (F16 for PLaMo 2, BF16 for PLaMo 3) plus the requested quantizations, logs,
+checksums, source revision and a copy of the model license. It refuses to overwrite existing weights.
+Activation and normalization arithmetic differ from MLX, so numerical equivalence is not assumed. Allow about 26 GB
+for PLaMo 2 F16 plus the recommended GGUF, in addition to the source. The official PLaMo 3 GGUFs were quantized with
+an importance matrix; pass one from `llama-imatrix` with `--imatrix` to do the same.
 
-The recommended `Q4_0-ssm-f16` recipe uses Q4_0 with all Mamba `ssm_out` matrices kept in F16.
+For PLaMo 2, the recommended `Q4_0-ssm-f16` recipe uses Q4_0 with all Mamba `ssm_out` matrices kept in F16.
 On the tested M1 Max, this preserves content omitted by plain Q4_0 while keeping most of its speed.
 See [the measured comparison and quality summary](benchmarks/llama_cpp_20261007/README.md).
-Other available recipes are Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q5_0, Q4_0 and Q4_1.
+Other available recipes are Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q5_0, Q4_0, Q4_1 and Q3_K_M; PLaMo 3 defaults to Q4_K_M.
 
 Start a persistent server, then translate using the existing client:
 
@@ -474,27 +529,30 @@ A plain client reuses the running backend. Explicitly requesting a different mod
 without changing the running server's configuration. Use a separate `TMPDIR` to run both backends.
 The native process binds to loopback and is terminated when its owning MCP server exits.
 
-`--precision` selects MLX weights; for llama.cpp, choose the GGUF file with `--model`.
-`PLAMO_TRANSLATE_CLI_MODEL_NAME` can also specify the GGUF path, and
+`--precision` selects MLX weights; for llama.cpp, choose the GGUF with `--model`.
+`PLAMO_TRANSLATE_CLI_MODEL_NAME` can also specify the GGUF path or repository, and
 `PLAMO_TRANSLATE_CLI_LLAMA_SERVER` can specify the executable.
 
 The llama.cpp defaults are full GPU offload (`--gpu-layers 99`), Flash Attention, F16 KV cache,
-one inference slot, a 32768-token context, 2048-token batches, 512-token microbatches, and 8 CPU threads.
-Override them with `--ctx-size`, `--batch-size`, `--ubatch-size`, `--threads`, `--gpu-layers`, and
-`--flash-attn on|off|auto`. Use `--gpu-layers 0` for CPU execution. Greedy decoding, disabled
+one inference slot, a 32768-token context, 2048-token batches, 512-token microbatches, and 2 CPU threads
+(8 with `--gpu-layers 0`). Override them with `--ctx-size`, `--batch-size`, `--ubatch-size`, `--threads`,
+`--gpu-layers`, and `--flash-attn on|off|auto`. Use `--gpu-layers 0` for CPU execution. Greedy decoding, disabled
 repetition penalty, the translation-specific prompt, and the model's BOS/EOS settings preserve
-the intended translation behavior. Prompt caching is disabled for repeatable independent requests.
-Token/context exhaustion and interrupted responses are reported as errors, including in streaming mode.
+the intended translation behavior. Requests never reuse a prompt, so the server keeps no prompt cache or context
+checkpoints. It skips llama.cpp's memory fitting, which only probes when the GPU layers are given, and replaces the
+GGUF's chat template, which this backend does not use. Token/context exhaustion and interrupted responses are
+reported as errors, including in streaming mode.
 
 Reproduce the supplied English/Japanese quality and speed comparison:
 
 ```sh
 uv run --with sacrebleu python scripts/benchmark_llama_cpp.py \
   --llama-server .local/llama.cpp/build/bin/llama-server \
-  --models ~/Models/pfnet--plamo-2-translate-gguf/plamo-2-translate-{F16,Q4_0-ssm-f16}.gguf \
-  --repeats 2 --output .local/benchmark-new-run
+  --models pfnet/plamo-3-translate-2b-GGUF:Q4_K_M pfnet/plamo-3-translate-2b-GGUF:Q4_0 \
+  --repeats 3 --output .local/benchmark-new-run
 ```
 
+`--models` also accepts local GGUF files, and `--draft-model` adds a draft.
 The benchmark saves full translations, raw streaming events, native logs, time to first token,
 prompt/decode timings, and chrF against the supplied reference. It warms model weights with a
 separate short prompt and measures complete translations without reusing the prompt cache.
@@ -505,10 +563,14 @@ content and do not interpret it as general translation accuracy.
 ## Options
 
 - --input TEXT Input text to translate
-- --from TEXT Input language for translation (default: English)
-- --to TEXT Output language for translation (default: Japanese)
-- --model Local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b)
-- --precision Model weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
+- --from TEXT Input language for translation (default: English|Japanese, chosen from the text)
+- --to TEXT Output language for translation (default: the other of English and Japanese)
+- --backend-type Server backend: [mlx, llama.cpp] (default: reuse a running server, otherwise mlx)
+- --model MLX: local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b).
+  llama.cpp: GGUF file or `<user>/<repo>[:QUANT or file.gguf]` (default: pfnet/plamo-3-translate-2b-GGUF:Q4_K_M)
+- --draft-model llama.cpp draft GGUF or repository, or `none` (default: pfnet/plamo-3-translate-0.8b-GGUF:Q4_0
+  for servers and interactive mode with the default model)
+- --precision MLX weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
 
 ## Configuration
 
@@ -516,7 +578,8 @@ You can configure the following parameters using environment variables:
 
 - `PLAMO_TRANSLATE_CLI_SERVER_START_PORT`: Specifies the starting port number for the server.
 - `PLAMO_TRANSLATE_CLI_SERVER_END_PORT`: Specifies the ending port number for the server.
-- `PLAMO_TRANSLATE_CLI_MODEL_NAME`: Local model directory or Hugging Face repository.
+- `PLAMO_TRANSLATE_CLI_MODEL_NAME`: Local model directory or Hugging Face repository; a GGUF file or repository for llama.cpp.
+- `PLAMO_TRANSLATE_CLI_LLAMA_SERVER`: Path to `llama-server` (default: `llama-server` on `PATH`).
 - `PLAMO_TRANSLATE_CLI_PRECISION`: Explicit weight precision, equivalent to `--precision`.
 - `PLAMO_TRANSLATE_CLI_OPTIMIZE`: PLaMo 2 only. Set to `1` to opt in to the experimental decode convolution (default: `0`; correctness fixes are always enabled).
 - `PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE`: Prompt chunk size (default: 512).

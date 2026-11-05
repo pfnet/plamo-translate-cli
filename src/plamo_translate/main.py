@@ -16,6 +16,15 @@ from typing import Dict, List
 
 from plamo_translate import __version__
 from plamo_translate.clients import translate
+from plamo_translate.servers.llama_cpp.model import (
+    DEFAULT_DRAFT_MODEL,
+    DEFAULT_GGUF_MODEL,
+    SUPPORTED_ARCHITECTURES,
+    canonical_model,
+    gguf_architecture,
+    resolve_model,
+    same_model,
+)
 from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
 from plamo_translate.servers.utils import (
     DEFAULT_MODEL_NAME,
@@ -64,6 +73,15 @@ def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = Fa
             server.runtime.close()
     else:
         raise ValueError(f"Unsupported backend type: {backend_type}")
+
+
+def fetch_gguf(name: str) -> str:
+    """Local path of a canonical GGUF model, downloading it on first use."""
+    try:
+        return resolve_model(name, local_only=True)
+    except FileNotFoundError:
+        print(f"Downloading {name} into the Hugging Face cache...", file=sys.stderr, flush=True)
+        return resolve_model(name)
 
 
 def check_server_running() -> bool:
@@ -257,7 +275,17 @@ def main() -> None:
     )
     global_parser.add_argument(
         "--model",
-        help=f"Local GGUF for llama.cpp, or MLX model path/repository (MLX default: {DEFAULT_MODEL_NAME})",
+        help=(
+            "Model path or Hugging Face repository. MLX: checkpoint (default: "
+            f"{DEFAULT_MODEL_NAME}). llama.cpp: GGUF file or <user>/<repo>[:QUANT] (default: {DEFAULT_GGUF_MODEL})"
+        ),
+    )
+    global_parser.add_argument(
+        "--draft-model",
+        help=(
+            "llama.cpp draft GGUF or <user>/<repo>[:QUANT] for speculative decoding, or 'none' "
+            f"(default with the default model: {DEFAULT_DRAFT_MODEL})"
+        ),
     )
     global_parser.add_argument(
         "--llama-server",
@@ -267,7 +295,9 @@ def main() -> None:
     global_parser.add_argument("--ctx-size", type=int, default=32768, help="llama.cpp context size")
     global_parser.add_argument("--batch-size", type=int, default=2048, help="llama.cpp prompt batch size")
     global_parser.add_argument("--ubatch-size", type=int, default=512, help="llama.cpp physical batch size")
-    global_parser.add_argument("--threads", type=int, default=8, help="llama.cpp CPU threads")
+    global_parser.add_argument(
+        "--threads", type=int, default=None, help="llama.cpp CPU threads (default: 2 with GPU layers, otherwise 8)"
+    )
     global_parser.add_argument("--gpu-layers", type=int, default=99, help="llama.cpp GPU layers (0 for CPU)")
     global_parser.add_argument("--flash-attn", choices=["on", "off", "auto"], default="on")
     global_parser.add_argument(
@@ -324,21 +354,28 @@ def main() -> None:
     args.backend_type = args.backend_type or (config.get("backend_type", "mlx") if running else "mlx")
     if args.backend_type == "llama.cpp" and args.precision is not None:
         parser.error("For llama.cpp, select precision with the GGUF passed to --model; --precision is for MLX.")
+    if args.backend_type != "llama.cpp" and args.draft_model is not None:
+        parser.error("--draft-model is for llama.cpp; pass --backend-type llama.cpp.")
     precision = (args.precision or os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION")) if args.backend_type == "mlx" else None
-    model_name = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")
+    requested_model = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")
+    model_name = requested_model
     if model_name is None and running and precision is None:
         model_name = config.get("model_name")
-    if model_name is None and args.backend_type == "mlx":
-        model_name = DEFAULT_MODEL_NAME
-    if args.command != "show-claude-config" and model_name is None:
-        parser.error("llama.cpp requires --model /path/to/model.gguf (or PLAMO_TRANSLATE_CLI_MODEL_NAME).")
-    if args.backend_type == "llama.cpp" and model_name:
-        model_name = str(Path(model_name).expanduser().resolve())
+    if model_name is None:
+        model_name = DEFAULT_MODEL_NAME if args.backend_type == "mlx" else DEFAULT_GGUF_MODEL
+    if args.backend_type == "llama.cpp":
+        try:
+            model_name = canonical_model(model_name)
+        except ValueError as exc:
+            parser.error(str(exc))
     if running and args.command != "show-claude-config":
         existing_model = config.get("model_name")
         if config.get("backend_type") == "llama.cpp" and existing_model:
-            existing_model = str(Path(existing_model).expanduser().resolve())
-        if config.get("backend_type", "mlx") != args.backend_type or existing_model != model_name:
+            try:
+                existing_model = canonical_model(existing_model)
+            except ValueError:
+                pass
+        if config.get("backend_type", "mlx") != args.backend_type or not same_model(existing_model, model_name):
             parser.error(
                 f"A different backend/model is already running ({config.get('backend_type', 'mlx')}: {existing_model}; "
                 f"requested {args.backend_type}: {model_name}). Stop it first, or use a separate TMPDIR."
@@ -351,21 +388,40 @@ def main() -> None:
     if args.backend_type == "llama.cpp" and not running and args.command != "show-claude-config":
         from dataclasses import asdict
 
-        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions
+        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions, find_llama_server
 
-        options = LlamaCppOptions(
-            model=model_name,
-            executable=args.llama_server,
-            ctx_size=args.ctx_size,
-            batch_size=args.batch_size,
-            ubatch_size=args.ubatch_size,
-            threads=args.threads,
-            gpu_layers=args.gpu_layers,
-            flash_attn=args.flash_attn,
-        )
+        draft_name = args.draft_model
+        if draft_name is None and requested_model is None and (args.command == "server" or args.interactive):
+            # On M1 Max the draft made decoding about 20% faster but took 0.8 s to load, which a single
+            # translation does not recover; persistent servers do.
+            draft_name = DEFAULT_DRAFT_MODEL
+        if draft_name is not None and draft_name.lower() == "none":
+            draft_name = None
         try:
+            # Fail before downloading gigabytes.
+            find_llama_server(args.llama_server)
+            model_path = fetch_gguf(model_name)
+            architecture = gguf_architecture(model_path)
+            if architecture not in SUPPORTED_ARCHITECTURES:
+                raise ValueError(f"{model_name} is a {architecture} model; expected PLaMo 2 or PLaMo 3")
+            draft_path = None
+            if draft_name is not None:
+                draft_path = fetch_gguf(canonical_model(draft_name))
+                if gguf_architecture(draft_path) != architecture:
+                    raise ValueError(f"The draft model must be a {architecture} GGUF with the same vocabulary")
+            options = LlamaCppOptions(
+                model=model_path,
+                executable=args.llama_server,
+                draft_model=draft_path,
+                ctx_size=args.ctx_size,
+                batch_size=args.batch_size,
+                ubatch_size=args.ubatch_size,
+                threads=args.threads,
+                gpu_layers=args.gpu_layers,
+                flash_attn=args.flash_attn,
+            )
             options.command(0)
-        except ValueError as exc:
+        except Exception as exc:
             parser.error(str(exc))
         args.llama_options = asdict(options)
     if not running and args.command != "show-claude-config":
