@@ -1,5 +1,7 @@
 # PLaMo 3 YaRN range on llama.cpp, 2026-11-05
 
+Built with PLaMo.
+
 Apple M1 Max, 64 GB. llama.cpp b11960 built with `scripts/build_llama_cpp.sh`, as in the
 [llama.cpp measurements](../llama_cpp_plamo3_20261105/README.md). Models: `pfnet/plamo-3-translate-2b` (original
 weights for MLX; BF16 GGUF converted with `scripts/prepare_llama_cpp.py`) and the official Q4_K_M GGUF.

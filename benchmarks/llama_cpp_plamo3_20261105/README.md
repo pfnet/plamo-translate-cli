@@ -1,5 +1,7 @@
 # PLaMo 3 Translate 2B on llama.cpp, 2026-11-05
 
+Built with PLaMo.
+
 Apple M1 Max, 32 GPU cores, 64 GB. llama.cpp b11960 (`8642541b255bfb5dc39cd351a178be09013a55d6`, the revision of
 Homebrew's llama.cpp 0.8.0) built with `scripts/build_llama_cpp.sh`, Release, Metal. Models:
 `pfnet/plamo-3-translate-2b-GGUF` at `f2b4599d` and the draft `pfnet/plamo-3-translate-0.8b-GGUF` at `03891e90`.

@@ -5,6 +5,7 @@ need llama-server on PATH or in PLAMO_TRANSLATE_CLI_LLAMA_SERVER.
 """
 
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -122,3 +123,11 @@ def test_interactive_mode_with_default_draft(tmp_path):
     responses = [line.removeprefix("> ").strip() for line in result.stdout.splitlines() if line.startswith("> ")]
     assert responses[:3] == ["完了"] * 3, result.stdout
     assert "Continuing without the speculative-decoding draft" not in result.stderr, result.stderr
+
+
+@pytest.mark.skipif(sys.platform == "darwin" and platform.machine() == "arm64", reason="Apple Silicon defaults to MLX")
+def test_machines_without_mlx_default_to_llama_cpp_without_tmpdir(monkeypatch, tmp_path):
+    # Linux usually leaves TMPDIR unset; the CLI keeps its state in a private directory instead.
+    monkeypatch.delenv("TMPDIR")
+    output = translate("--input", "PLaMo 3 Translate を試してみました。")
+    assert "PLaMo 3 Translate" in output and "tried" in output.lower(), output

@@ -2,11 +2,16 @@
 import argparse
 import asyncio
 import atexit
+import importlib.util
 import json
 import logging
 import multiprocessing
 import os
-import readline
+import platform
+try:
+    import readline
+except ImportError:  # Windows, which main() refuses with a message
+    readline = None
 import signal
 import subprocess
 import sys
@@ -25,7 +30,12 @@ from plamo_translate.servers.llama_cpp.model import (
     resolve_model,
     same_model,
 )
-from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
+from plamo_translate.servers.mlx.pfml3 import (
+    CHECKPOINT_FILES,
+    checkpoint_complete,
+    checkpoint_config,
+    is_plamo3_checkpoint,
+)
 from plamo_translate.servers.utils import (
     DEFAULT_MODEL_NAME,
     PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE,
@@ -34,8 +44,6 @@ from plamo_translate.servers.utils import (
     update_config,
     verify_mcp_server_ready,
 )
-
-os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +90,58 @@ def fetch_gguf(name: str) -> str:
     except FileNotFoundError:
         print(f"Downloading {name} into the Hugging Face cache...", file=sys.stderr, flush=True)
         return resolve_model(name)
+
+
+def fetch_mlx_checkpoint(name: str | None) -> None:
+    """Download an original PLaMo 3 checkpoint before its server starts, with a message and progress bars.
+
+    Inside the server the 5.8 GB download of the default model was silent and counted against the startup wait.
+    PLaMo 2 checkpoints are still fetched by the MLX loader.
+    """
+    if not name or os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") == "1" or Path(name).expanduser().is_dir():
+        return
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError
+
+    try:
+        if checkpoint_complete(snapshot_download(name, allow_patterns=CHECKPOINT_FILES, local_files_only=True)):
+            return
+    except LocalEntryNotFoundError:
+        pass
+    except HFValidationError:
+        raise SystemExit(f"{name} is neither a checkpoint directory nor a Hugging Face repository.") from None
+    config = checkpoint_config(name)
+    if config is None or config.get("model_type") != "plamo3" or config.get("quantization"):
+        # The server reports missing and quantized checkpoints, and loads PLaMo 2 its own way.
+        return
+    print(f"Downloading {name}{download_size(name)} into the Hugging Face cache...", file=sys.stderr, flush=True)
+    try:
+        snapshot_download(name, allow_patterns=CHECKPOINT_FILES)
+    except KeyboardInterrupt:
+        # Exit at once rather than waiting for the download threads to finish their files.
+        print("\nDownload interrupted; the next run resumes it.", file=sys.stderr, flush=True)
+        os._exit(130)
+    except Exception as exc:
+        raise SystemExit(f"Could not download {name}: {exc}") from exc
+
+
+def download_size(name: str) -> str:
+    """" (5.8 GB)" for the checkpoint files of a repository; the progress bar only counts files."""
+    from fnmatch import fnmatchcase
+
+    from huggingface_hub import HfApi
+
+    try:
+        files = HfApi().model_info(name, files_metadata=True).siblings or []
+    except Exception:
+        return ""
+    size = sum(f.size or 0 for f in files if any(fnmatchcase(f.rfilename, p) for p in CHECKPOINT_FILES))
+    return f" ({size / 1e9:.1f} GB)" if size else ""
+
+
+def mlx_available() -> bool:
+    """MLX runs on Apple Silicon only, and is installed there only."""
+    return sys.platform == "darwin" and platform.machine() == "arm64" and importlib.util.find_spec("mlx") is not None
 
 
 def check_server_running() -> bool:
@@ -144,6 +204,8 @@ def run_translate(args: argparse.Namespace) -> None:
 
     server = None
     if not check_server_running():
+        if backend_type == "mlx":
+            fetch_mlx_checkpoint(os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME"))
         if args.interactive:
             show_progress = True
         else:
@@ -231,6 +293,8 @@ def run_translate(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        sys.exit("plamo-translate does not support Windows; run it in WSL, where it uses llama.cpp.")
     global_parser = argparse.ArgumentParser(add_help=False)
     global_parser.add_argument(
         "--version",
@@ -263,7 +327,7 @@ def main() -> None:
         type=str,
         default=None,
         choices=["mlx", "llama.cpp"],
-        help="Server backend (default: reuse a running server, otherwise mlx)",
+        help="Server backend (default: reuse a running server, otherwise mlx on Apple Silicon and llama.cpp elsewhere)",
     )
     global_parser.add_argument(
         "--precision",
@@ -354,7 +418,16 @@ def main() -> None:
     args.stream = not args.no_stream
     config = update_config()
     running = check_server_running()
-    args.backend_type = args.backend_type or (config.get("backend_type", "mlx") if running else "mlx")
+    mock = os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") == "1"
+    if not running and args.backend_type is None:
+        # The mock server stands in for either backend; keep the MLX default so tests do not depend on the host.
+        args.backend_type = "mlx" if mock or mlx_available() else "llama.cpp"
+    args.backend_type = args.backend_type or config.get("backend_type", "mlx")
+    if args.backend_type == "mlx" and not running and not mock and not mlx_available():
+        parser.error(
+            "MLX needs an Apple Silicon Mac with macOS 14 or later. Use --backend-type llama.cpp, which runs "
+            "llama-server from llama.cpp (see README)."
+        )
     if args.backend_type == "llama.cpp" and args.precision is not None:
         parser.error("For llama.cpp, select precision with the GGUF passed to --model; --precision is for MLX.")
     if args.backend_type != "llama.cpp" and args.draft_model is not None:
@@ -367,7 +440,7 @@ def main() -> None:
     if model_name is None:
         model_name = DEFAULT_MODEL_NAME if args.backend_type == "mlx" else DEFAULT_GGUF_MODEL
     # The mock server ignores the model and records its name as "mock".
-    llama = args.backend_type == "llama.cpp" and os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") != "1"
+    llama = args.backend_type == "llama.cpp" and not mock
     if llama:
         try:
             model_name = canonical_model(model_name)
@@ -446,6 +519,8 @@ def main() -> None:
         if check_server_running():
             print("MCP server is already running. Skipping server start.")
             sys.exit(0)
+        if args.backend_type == "mlx":
+            fetch_mlx_checkpoint(model_name)
         while not check_server_running():
             try:
                 logger.info("Starting server...")

@@ -13,6 +13,8 @@ KEY = "<|plamo:key|>"
 VAL = "<|plamo:val|>"
 MSG = "<|plamo:msg|>"
 RESERVED = "<|plamo:"
+# Files of an original PLaMo 3 checkpoint that the MLX backend loads.
+CHECKPOINT_FILES = ["*.json", "*.safetensors", "tokenizer.jsonl", "tokenization_plamo.py"]
 AUTO_DIRECTION = "English|Japanese"
 
 LANGUAGE_CODES = {
@@ -37,6 +39,16 @@ LANGUAGE_CODES = {
 _MESSAGE = re.compile(r"(input|output)(?: lang=([^\n]*))?\n(.*)", re.DOTALL)
 _JAPANESE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff66-\uff9f]")
 _ALPHABET = re.compile(r"[A-Za-z]")
+_HIRAGANA = re.compile(r"[\u3041-\u309f]")
+_WORD = re.compile(r"[A-Za-z]+")
+# Quoted text, such as 'ありがとう' in an English question, says nothing about the language around it.
+_QUOTED = re.compile(r"(?<![A-Za-z])'[^'\n]*'(?![A-Za-z])|\"[^\"\n]*\"|“[^”\n]*”|‘[^’\n]*’")
+_ENGLISH_FUNCTION_WORDS = frozenset(
+    """a an the of to in on at by for from with and or but if is are was were be been am do does did not no can could
+    will would should may might must have has had i you he she it we they me him her us them my your his its our their
+    this that these those there here what which who whom whose when where why how so as than then very too also just
+    please""".split()
+)
 
 
 def checkpoint_config(name: str) -> dict | None:
@@ -55,6 +67,21 @@ def checkpoint_config(name: str) -> dict | None:
     return json.loads(Path(config).read_text())
 
 
+def checkpoint_complete(folder: str | Path) -> bool:
+    """Whether a checkpoint folder has its config, tokenizer and every weight shard.
+
+    A cache can hold part of a snapshot, such as only config.json, and huggingface_hub cannot always tell.
+    """
+    folder = Path(folder)
+    if not (folder / "config.json").is_file() or not (folder / "tokenizer.jsonl").is_file():
+        return False
+    index = folder / "model.safetensors.index.json"
+    if index.is_file():
+        shards = set(json.loads(index.read_text()).get("weight_map", {}).values())
+        return bool(shards) and all((folder / shard).is_file() for shard in shards)
+    return (folder / "model.safetensors").is_file()
+
+
 def is_plamo3_checkpoint(name: str | None) -> bool:
     if not name:
         return False
@@ -66,8 +93,23 @@ def _code(language: str) -> str:
     return LANGUAGE_CODES.get(language, language)
 
 
-def _opposite(text: str) -> str:
-    """PLaMo 3 needs an explicit target, so choose the English/Japanese direction from the source."""
+def _opposite(text: str, language: str | None) -> str:
+    """PLaMo 3 needs an explicit target: the other of English and Japanese.
+
+    A given English or Japanese source decides. Otherwise grammar decides: hiragana marks Japanese, English function
+    words mark English, and names, commands and quotations mark neither. Comparing Japanese characters with Latin
+    letters sent Japanese naming commands or products, such as "PLaMo 3 Translate を試してみました。", to Japanese,
+    and the model echoed it. Without hiragana, as in Chinese or English with Japanese names, characters still decide.
+    """
+    source = _code(language) if language and language != AUTO_DIRECTION else None
+    if source in ("ja", "ja(easy)"):
+        return "en"
+    if source == "en":
+        return "ja"
+    hiragana = len(_HIRAGANA.findall(_QUOTED.sub("", text)))
+    if hiragana:
+        function_words = sum(word.lower() in _ENGLISH_FUNCTION_WORDS for word in _WORD.findall(text))
+        return "en" if hiragana > 2 * function_words else "ja"
     return "en" if len(_JAPANESE.findall(text)) >= len(_ALPHABET.findall(text)) and _JAPANESE.search(text) else "ja"
 
 
@@ -78,6 +120,7 @@ def pfml3_prompt(messages: list, bos: bool = True) -> str:
     """
     parts = [f"{BOS if bos else ''}{TAG}dataset{MSG}translation"]
     source = None
+    source_language = None
     kind = None
     for message in messages:
         match = _MESSAGE.fullmatch(message.content)
@@ -93,11 +136,11 @@ def pfml3_prompt(messages: list, bos: bool = True) -> str:
                 raise ValueError("Source text must not be empty")
             attribute = f"{KEY}lang{VAL}{_code(language)}" if language and language != AUTO_DIRECTION else ""
             parts.append(f"{TAG}input{attribute}{MSG}{text}")
-            source = text
+            source, source_language = text, language
         else:
             if source is None:
                 raise ValueError("Each translation must follow its source text")
-            target = _code(language) if language else _opposite(source)
+            target = _code(language) if language else _opposite(source, source_language)
             parts.append(f"{TAG}output{KEY}lang{VAL}{target}{MSG}{text}")
             source = None
     if kind != "output" or not parts[-1].endswith(MSG):
