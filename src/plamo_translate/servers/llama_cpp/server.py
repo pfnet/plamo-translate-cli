@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 import os
 import platform
 import re
@@ -32,8 +31,6 @@ from plamo_translate.servers.utils import (
     construct_llm_input,
     find_free_port,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def find_llama_server(executable: str) -> str:
@@ -201,8 +198,13 @@ def validate_model_log(log: str, draft: bool = False) -> None:
     if re.search(r"n_rot\s*=\s*0\b", log):
         raise RuntimeError("This llama.cpp build disables PLaMo 2 RoPE (n_rot = 0). Run scripts/build_llama_cpp.sh.")
     if draft and "speculative decoding context initialized" not in log:
-        # llama-server keeps serving without the draft when it is incompatible, for example in vocabulary.
-        logger.warning("llama-server did not enable the draft model; decoding runs without speculation")
+        # llama-server keeps serving without the draft when it is incompatible, for example in vocabulary. Print
+        # rather than log: the CLI raises the root logger to ERROR or CRITICAL before servers start.
+        print(
+            "llama-server did not enable the draft model; decoding runs without speculation",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def build_prompt(request: TranslateRequest, *, architecture: str) -> str:

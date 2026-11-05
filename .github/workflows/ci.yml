@@ -192,7 +192,9 @@ jobs:
           echo "PLAMO_TRANSLATE_CLI_LLAMA_SERVER=$GITHUB_WORKSPACE/.local/llama.cpp/build/bin/llama-server" >> "$GITHUB_ENV"
       - name: Install llama.cpp from Homebrew
         if: runner.os == 'macOS'
+        # Without an update, the runner image's Homebrew installed llama.cpp 0.7.0 (b11669) instead of the current formula.
         run: |
+          brew update
           brew install llama.cpp
           echo "PLAMO_TRANSLATE_CLI_LLAMA_SERVER=$(command -v llama-server)" >> "$GITHUB_ENV"
       - name: Show the llama.cpp version

@@ -92,7 +92,7 @@ def test_server_with_default_draft_serves_plain_clients(tmp_path):
     finally:
         stop(server)
     log = log_path.read_text()
-    assert "Starting server" in log, log  # The warnings below would land here too.
+    assert "Uvicorn running on" in log, log  # The server's standard error, where both messages below go.
     assert "Continuing without the speculative-decoding draft" not in log, log
     assert "did not enable the draft model" not in log, log
 
