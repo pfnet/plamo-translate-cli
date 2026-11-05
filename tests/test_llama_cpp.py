@@ -265,11 +265,11 @@ def test_unpatched_rope_loader_is_rejected():
     validate_model_log("print_info: n_rot                 = 128\n")
 
 
-def test_dropped_draft_is_reported(caplog):
+def test_dropped_draft_is_reported(capsys):
     validate_model_log("srv load_model: speculative decoding context initialized\n", draft=True)
-    assert not caplog.records
+    assert not capsys.readouterr().err
     validate_model_log("srv load_model: failed to initialize speculative decoding context\n", draft=True)
-    assert "did not enable the draft" in caplog.text
+    assert "did not enable the draft" in capsys.readouterr().err
 
 
 def transport(events, status=200):
