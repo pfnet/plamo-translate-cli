@@ -35,9 +35,9 @@ SUPPORTED_LANGUAGES = [
     "English|Japanese",
 ]
 
-PLAMO_TRANSLATE_CLI_MODEL_NAME = os.environ.get(
-    "PLAMO_TRANSLATE_CLI_MODEL_NAME", "mlx-community/plamo-2-translate"
-)
+# Original weights; the MLX backend converts them to the requested precision on load.
+DEFAULT_MODEL_NAME = "pfnet/plamo-3-translate-2b"
+PLAMO_TRANSLATE_CLI_MODEL_NAME = os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME", DEFAULT_MODEL_NAME)
 PLAMO_TRANSLATE_CLI_SERVER_START_PORT = int(os.environ.get("PLAMO_TRANSLATE_CLI_SERVER_START_PORT", 30000))
 PLAMO_TRANSLATE_CLI_SERVER_END_PORT = int(os.environ.get("PLAMO_TRANSLATE_CLI_SERVER_END_PORT", 30099))
 PLAMO_TRANSLATE_CLI_SERVER_LOG_LEVEL = os.environ.get("PLAMO_TRANSLATE_CLI_SERVER_LOG_LEVEL", "INFO")
@@ -210,9 +210,12 @@ def construct_llm_input(request: TranslateRequest) -> List[Message]:
     if request.source_language == "" and request.target_language == "":
         return request.messages
 
+    source_text = request.messages[-1].content.strip()
     if request.source_language != "":
-        source_text = request.messages[-1].content.strip()
         request.messages[-1].content = f"input lang={request.source_language}\n" + source_text
+    elif not source_text.startswith(("input\n", "input lang=")):
+        # PLaMo 3 prompts need an input line even when the source language is left to the model.
+        request.messages[-1].content = "input\n" + source_text
     if request.target_language != "":
         request.messages.append(Message(role="user", content=f"output lang={request.target_language}\n"))
     else:

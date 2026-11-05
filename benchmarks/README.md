@@ -5,13 +5,14 @@ conditions, aggregate results and limitations; exclude individual logs, detailed
 JSON, generated translations, absolute local paths and machine-wide process lists.
 Raw output must stay in an ignored directory such as `.local/benchmarks/`.
 
-- [MLX measurements](../README.md#measured-result-2026-10-07)
+- [PLaMo 3 MLX measurements (default model)](plamo3_mlx_20261104/README.md)
+- [PLaMo 2 MLX measurements](../README.md#measured-result-2026-10-07)
 - [llama.cpp measurements](llama_cpp_20261007/README.md)
 - [Standalone MLX release validation](releases/2026-10-07/README.md)
 
 The shared source and reference text are regression fixtures in
 [`tests/fixtures`](../tests/fixtures). Benchmark and validation scripts use those
-fixtures directly. Reproduce the 4bit MLX baseline before validating CLI output:
+fixtures directly. Reproduce the PLaMo 2 4bit MLX baseline before validating CLI output:
 
 ```sh
 uv run python scripts/benchmark_mlx.py \
