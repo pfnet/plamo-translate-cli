@@ -6,6 +6,7 @@ Official PLaMo 3 GGUFs (pfnet/plamo-3-translate-*-GGUF) need no conversion; use 
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -47,8 +48,12 @@ def main():
         parser.error("Q4_0-ssm-f16 keeps Mamba matrices in F16; PLaMo 3 has none")
     if args.imatrix is not None and not args.imatrix.is_file():
         parser.error(f"{args.imatrix} does not exist")
-    # Local copies are often named <user>--<repo>.
-    name = args.name or ("plamo-2-translate" if plamo2 else source.name.split("--")[-1])
+    # Name PLaMo 3 outputs after the repository: local copies are often named <user>--<repo>, and Hugging Face
+    # snapshots are models--<user>--<repo>/snapshots/<commit>. Keep symlinks, which point into blobs.
+    given = Path(os.path.abspath(args.model_dir.expanduser()))
+    if given.parent.name == "snapshots" and given.parent.parent.name.startswith("models--"):
+        given = given.parent.parent
+    name = args.name or ("plamo-2-translate" if plamo2 else given.name.split("--")[-1])
     if args.threads <= 0:
         parser.error("--threads must be positive")
     converter = llama / "convert_hf_to_gguf.py"

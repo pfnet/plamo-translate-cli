@@ -102,6 +102,10 @@ def main():
     }
     draft = resolve_model(canonical_model(args.draft_model)) if args.draft_model else None
     models = {name: resolve_model(canonical_model(name)) for name in args.models}
+    stems = [Path(model).stem for model in models.values()]
+    if len(set(stems)) != len(stems):
+        # Outputs are named after the file; two files with one name would overwrite each other.
+        parser.error("--models must have distinct file names; benchmark them in separate --output directories")
     metadata["payloads"] = {
         name: completion_payload(request, architecture=gguf_architecture(model), max_tokens=4096)
         for name, model in models.items()

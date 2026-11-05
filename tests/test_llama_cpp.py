@@ -5,6 +5,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock
 
@@ -40,8 +41,10 @@ PLAMO3_PROMPT = (
 
 @pytest.fixture(autouse=True)
 def isolated_environment():
-    # main() exports the selected model; keep it out of later tests.
+    # main() exports the selected model; keep it out of later tests. CI's mock job sets the mock server for every
+    # test, which would skip the llama.cpp model handling tested here.
     with mock.patch.dict(os.environ):
+        os.environ.pop("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER", None)
         yield
 
 
@@ -171,23 +174,32 @@ def test_hugging_face_cache_symlink_is_accepted(tmp_path):
     assert command[command.index("--model") + 1] == str(link)
 
 
-def test_repository_quantization_selects_one_file(monkeypatch, tmp_path):
+def fake_hub(monkeypatch, tmp_path, files):
+    """snapshot_download that, like the Hub, downloads only the files its case-sensitive patterns match."""
     import huggingface_hub
+    from huggingface_hub.utils import filter_repo_objects
 
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()
-    for name in ["m-Q4_0.gguf", "m-IQ4_0.gguf", "m-Q4_K_M.gguf", "m-Q8_0-00001-of-00002.gguf"]:
-        (snapshot / name).touch()
     patterns = []
 
     def snapshot_download(repository, allow_patterns, local_files_only):
         patterns.append(allow_patterns)
+        for name in filter_repo_objects(files, allow_patterns=allow_patterns):
+            (snapshot / name).touch()
         return str(snapshot)
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    return snapshot, patterns
+
+
+def test_repository_quantization_selects_one_file(monkeypatch, tmp_path):
+    files = ["README.md", "m-Q4_0.gguf", "m-IQ4_0.gguf", "m-q4_k_m.gguf", "m-Q8_0-00001-of-00002.gguf"]
+    snapshot, patterns = fake_hub(monkeypatch, tmp_path, files)
     assert resolve_model("user/repo:q4_0") == str(snapshot / "m-Q4_0.gguf")
-    assert patterns == [["*Q4_0.gguf"]]
-    assert resolve_model("user/repo") == str(snapshot / "m-Q4_K_M.gguf")
+    assert patterns == [["*[qQ]4_0.gguf"]]
+    # The default Q4_K_M also selects a lower-case file name.
+    assert resolve_model("user/repo") == str(snapshot / "m-q4_k_m.gguf")
     with pytest.raises(ValueError, match="found none"):
         resolve_model("user/repo:Q8_0")
     with pytest.raises(FileNotFoundError):
@@ -195,7 +207,35 @@ def test_repository_quantization_selects_one_file(monkeypatch, tmp_path):
     assert resolve_model(str(snapshot / "m-Q4_0.gguf")) == str(snapshot / "m-Q4_0.gguf")
 
 
-def test_command_tunes_server_and_adds_draft(tmp_path):
+def test_repository_without_gguf_points_to_the_gguf_repository(monkeypatch, tmp_path):
+    fake_hub(monkeypatch, tmp_path, ["config.json", "model.safetensors"])
+    with pytest.raises(ValueError, match="-GGUF repository or --backend-type mlx"):
+        resolve_model("pfnet/plamo-3-translate-2b")
+
+
+def test_fetch_downloads_only_when_the_cache_misses(monkeypatch, capsys):
+    calls = []
+
+    def resolve(name, local_only=False):
+        calls.append(local_only)
+        if local_only and name == "user/missing:Q4_K_M":
+            raise FileNotFoundError(name)
+        return "/cache/" + name
+
+    monkeypatch.setattr(cli, "resolve_model", resolve)
+    assert cli.fetch_gguf("user/cached:Q4_K_M") == "/cache/user/cached:Q4_K_M"
+    assert calls == [True]
+    assert capsys.readouterr().err == ""
+    assert cli.fetch_gguf("user/missing:Q4_K_M") == "/cache/user/missing:Q4_K_M"
+    assert calls == [True, True, False]
+    assert "Downloading user/missing:Q4_K_M" in capsys.readouterr().err
+
+
+def test_command_tunes_server_and_adds_draft(monkeypatch, tmp_path):
+    import platform
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
     model = write_gguf(tmp_path / "model.gguf")
     draft = write_gguf(tmp_path / "draft.gguf")
     command = LlamaCppOptions(str(model), sys.executable, draft_model=str(draft)).command(8080)
@@ -213,12 +253,23 @@ def test_command_tunes_server_and_adds_draft(tmp_path):
     assert "--model-draft" not in cpu
     with pytest.raises(ValueError, match="--draft-model"):
         LlamaCppOptions(str(model), sys.executable, draft_model=str(tmp_path / "missing.gguf")).command(8080)
+    # Fewer threads were only measured with Metal; CPU-only and other GPU builds keep 8.
+    monkeypatch.setattr(sys, "platform", "linux")
+    linux = LlamaCppOptions(str(model), sys.executable).command(8080)
+    assert linux[linux.index("--threads") + 1] == "8"
 
 
 def test_unpatched_rope_loader_is_rejected():
     with pytest.raises(RuntimeError, match="disables PLaMo 2 RoPE"):
         validate_model_log("print_info: n_rot                 = 0\n")
     validate_model_log("print_info: n_rot                 = 128\n")
+
+
+def test_dropped_draft_is_reported(caplog):
+    validate_model_log("srv load_model: speculative decoding context initialized\n", draft=True)
+    assert not caplog.records
+    validate_model_log("srv load_model: failed to initialize speculative decoding context\n", draft=True)
+    assert "did not enable the draft" in caplog.text
 
 
 def transport(events, status=200):
@@ -379,8 +430,13 @@ def test_cli_checks_llama_server_before_downloading(tmp_path):
     assert not (tmp_path / "plamo-translate-config.json").exists()
 
 
-def start_cli(monkeypatch, tmp_path, *arguments):
-    """Run main() up to the translation and return its arguments; downloads come from local fake GGUFs."""
+def start_cli(monkeypatch, tmp_path, *arguments, missing=()):
+    """Run main() up to the translation or server start and return its arguments.
+
+    Downloads come from local fake GGUFs; models in `missing` are neither cached nor downloadable.
+    """
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_PRECISION", raising=False)
@@ -390,15 +446,26 @@ def start_cli(monkeypatch, tmp_path, *arguments):
         "pfnet/plamo-3-translate-2b-GGUF:Q4_0": write_gguf(tmp_path / "q4_0.gguf"),
         "user/plamo2-GGUF:Q4_K_M": write_gguf(tmp_path / "plamo2.gguf", "plamo2"),
     }
-    monkeypatch.setattr(cli, "resolve_model", lambda name, local_only=False: str(files.get(name, name)))
+
+    def resolve(name, local_only=False):
+        if name in missing:
+            raise FileNotFoundError(name) if local_only else LocalEntryNotFoundError("offline")
+        return str(files.get(name, name))
+
+    monkeypatch.setattr(cli, "resolve_model", resolve)
     monkeypatch.setattr(cli, "check_server_running", lambda: False)
     received = []
     monkeypatch.setattr(cli, "run_translate", received.append)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["plamo-translate", "--backend-type", "llama.cpp", "--llama-server", sys.executable, *arguments],
-    )
+
+    def start_mcp_server(backend_type, log_level, show_progress, llama_options):
+        received.append(SimpleNamespace(llama_options=llama_options))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "start_mcp_server", start_mcp_server)
+    # Subcommands come first: their parser would reset options given before them.
+    command = [arguments[0]] if arguments[:1] == ("server",) else []
+    options = ["--backend-type", "llama.cpp", "--llama-server", sys.executable, *arguments[len(command) :]]
+    monkeypatch.setattr(sys, "argv", ["plamo-translate", *command, *options])
     cli.main()
     return received[0]
 
@@ -413,6 +480,53 @@ def test_cli_defaults_to_official_gguf_with_draft_for_sessions(monkeypatch, tmp_
     assert update_config()["model_name"] == DEFAULT_GGUF_MODEL
     args = start_cli(monkeypatch, tmp_path, "--interactive")
     assert args.llama_options["draft_model"] == str(tmp_path / "draft.gguf")
+    args = start_cli(monkeypatch, tmp_path, "server")
+    assert args.llama_options["draft_model"] == str(tmp_path / "draft.gguf")
+    # Naming the default model keeps its draft.
+    args = start_cli(monkeypatch, tmp_path, "--interactive", "--model", "pfnet/plamo-3-translate-2b-GGUF:q4_k_m")
+    assert args.llama_options["draft_model"] == str(tmp_path / "draft.gguf")
+
+
+@pytest.mark.parametrize("model", ["pfnet/plamo-3-translate-2b-GGUF:Q4_0", "user/plamo2-GGUF"])
+def test_cli_other_models_get_no_default_draft(monkeypatch, tmp_path, model):
+    args = start_cli(monkeypatch, tmp_path, "--interactive", "--model", model)
+    assert args.llama_options["draft_model"] is None
+
+
+def test_cli_continues_without_an_unavailable_default_draft(monkeypatch, tmp_path, capsys):
+    args = start_cli(monkeypatch, tmp_path, "--interactive", missing=[DEFAULT_DRAFT_MODEL])
+    assert args.llama_options["model"] == str(tmp_path / "default.gguf")
+    assert args.llama_options["draft_model"] is None
+    assert "Continuing without the speculative-decoding draft" in capsys.readouterr().err
+    # A draft the user asked for must not be dropped silently.
+    with pytest.raises(SystemExit) as exit_info:
+        start_cli(
+            monkeypatch, tmp_path, "--interactive", "--draft-model", DEFAULT_DRAFT_MODEL, missing=[DEFAULT_DRAFT_MODEL]
+        )
+    assert exit_info.value.code == 2
+
+
+def test_cli_rejects_a_directory_as_gguf(monkeypatch, tmp_path, capsys):
+    (tmp_path / "mlx-checkpoint").mkdir()
+    with pytest.raises(SystemExit):
+        start_cli(monkeypatch, tmp_path, "--model", str(tmp_path / "mlx-checkpoint"), "--input", "hello")
+    assert "--model must be an existing GGUF file" in capsys.readouterr().err
+
+
+def test_mock_llama_server_is_reused_without_model_checks(monkeypatch, tmp_path):
+    from plamo_translate.servers.utils import update_config
+
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setenv("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER", "1")
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
+    # The mock server records its model name as "mock".
+    update_config(backend_type="llama.cpp", model_name="mock", port=30000)
+    monkeypatch.setattr(cli, "check_server_running", lambda: True)
+    received = []
+    monkeypatch.setattr(cli, "run_translate", received.append)
+    monkeypatch.setattr(sys, "argv", ["plamo-translate", "--input", "hello"])
+    cli.main()
+    assert received[0].backend_type == "llama.cpp"
 
 
 @pytest.mark.parametrize(

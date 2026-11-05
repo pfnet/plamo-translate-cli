@@ -284,7 +284,7 @@ def main() -> None:
         "--draft-model",
         help=(
             "llama.cpp draft GGUF or <user>/<repo>[:QUANT] for speculative decoding, or 'none' "
-            f"(default with the default model: {DEFAULT_DRAFT_MODEL})"
+            f"(default for servers and interactive mode with the default model: {DEFAULT_DRAFT_MODEL})"
         ),
     )
     global_parser.add_argument(
@@ -296,7 +296,10 @@ def main() -> None:
     global_parser.add_argument("--batch-size", type=int, default=2048, help="llama.cpp prompt batch size")
     global_parser.add_argument("--ubatch-size", type=int, default=512, help="llama.cpp physical batch size")
     global_parser.add_argument(
-        "--threads", type=int, default=None, help="llama.cpp CPU threads (default: 2 with GPU layers, otherwise 8)"
+        "--threads",
+        type=int,
+        default=None,
+        help="llama.cpp CPU threads (default: 2 with GPU layers on Apple Silicon, otherwise 8)",
     )
     global_parser.add_argument("--gpu-layers", type=int, default=99, help="llama.cpp GPU layers (0 for CPU)")
     global_parser.add_argument("--flash-attn", choices=["on", "off", "auto"], default="on")
@@ -363,14 +366,16 @@ def main() -> None:
         model_name = config.get("model_name")
     if model_name is None:
         model_name = DEFAULT_MODEL_NAME if args.backend_type == "mlx" else DEFAULT_GGUF_MODEL
-    if args.backend_type == "llama.cpp":
+    # The mock server ignores the model and records its name as "mock".
+    llama = args.backend_type == "llama.cpp" and os.environ.get("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER") != "1"
+    if llama:
         try:
             model_name = canonical_model(model_name)
         except ValueError as exc:
             parser.error(str(exc))
     if running and args.command != "show-claude-config":
         existing_model = config.get("model_name")
-        if config.get("backend_type") == "llama.cpp" and existing_model:
+        if llama and config.get("backend_type") == "llama.cpp" and existing_model:
             try:
                 existing_model = canonical_model(existing_model)
             except ValueError:
@@ -385,30 +390,37 @@ def main() -> None:
     if args.backend_type == "mlx" and precision is not None:
         os.environ["PLAMO_TRANSLATE_CLI_PRECISION"] = precision
     args.llama_options = None
-    if args.backend_type == "llama.cpp" and not running and args.command != "show-claude-config":
+    if llama and not running and args.command != "show-claude-config":
         from dataclasses import asdict
 
-        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions, find_llama_server
+        from plamo_translate.servers.llama_cpp.server import LlamaCppOptions, find_llama_server, gguf_file
 
         draft_name = args.draft_model
-        if draft_name is None and requested_model is None and (args.command == "server" or args.interactive):
-            # On M1 Max the draft made decoding about 20% faster but took 0.8 s to load, which a single
-            # translation does not recover; persistent servers do.
+        if draft_name is None and model_name == DEFAULT_GGUF_MODEL and (args.command == "server" or args.interactive):
+            # On M1 Max the draft made decoding about 20% faster but took 0.8 s to load, which only pays off
+            # after 420 to 560 generated tokens; persistent sessions recover it.
             draft_name = DEFAULT_DRAFT_MODEL
         if draft_name is not None and draft_name.lower() == "none":
             draft_name = None
         try:
             # Fail before downloading gigabytes.
             find_llama_server(args.llama_server)
-            model_path = fetch_gguf(model_name)
+            model_path = gguf_file(fetch_gguf(model_name), "--model")
             architecture = gguf_architecture(model_path)
             if architecture not in SUPPORTED_ARCHITECTURES:
                 raise ValueError(f"{model_name} is a {architecture} model; expected PLaMo 2 or PLaMo 3")
             draft_path = None
             if draft_name is not None:
-                draft_path = fetch_gguf(canonical_model(draft_name))
-                if gguf_architecture(draft_path) != architecture:
-                    raise ValueError(f"The draft model must be a {architecture} GGUF with the same vocabulary")
+                try:
+                    draft_path = gguf_file(fetch_gguf(canonical_model(draft_name)), "--draft-model")
+                    if gguf_architecture(draft_path) != architecture:
+                        raise ValueError(f"The draft model must be a {architecture} GGUF with the same vocabulary")
+                except Exception as exc:
+                    if args.draft_model is not None:
+                        raise
+                    # The default draft only speeds decoding up; offline without it in the cache, go on without it.
+                    print(f"Continuing without the speculative-decoding draft: {exc}", file=sys.stderr, flush=True)
+                    draft_path = None
             options = LlamaCppOptions(
                 model=model_path,
                 executable=args.llama_server,

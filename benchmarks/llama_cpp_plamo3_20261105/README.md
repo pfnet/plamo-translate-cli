@@ -25,7 +25,7 @@ uv run python scripts/benchmark_llama_cpp.py --llama-server .local/llama.cpp/bui
 
 With the draft, every output was byte-identical to the output without it, in both directions and for both
 quantizations. The draft proposed 368 tokens for the English source and 344 for the Japanese one; 85% were
-accepted. Japanese to English gained more: 113 to 144 tok/s with Q4_K_M.
+accepted. Japanese to English gained more: 112 to 142 tok/s with Q4_K_M.
 
 For comparison, the fused MLX kernels decode at 170 tok/s on this machine
 ([summary](../plamo3_mlx_20261104/README.md)). llama.cpp's own `llama-bench` measured 117 tok/s for Q4_K_M and
@@ -33,26 +33,30 @@ For comparison, the fused MLX kernels decode at 170 tok/s on this machine
 
 ## Server options
 
-Q4_K_M, decode tok/s English to Japanese / Japanese to English. Each step keeps the previous ones.
+Q4_K_M, decode tok/s English to Japanese / Japanese to English, all rows in one session. Each step keeps the
+previous ones.
 
 | Setting | tok/s | Output |
 | --- | ---: | --- |
-| Previous backend: top-p 0.98 and server default min-p 0.05 with temperature 0, 8 threads | 76 / 68 | reference |
-| Greedy without the CPU nucleus and min-p filters | 109 / 108 | identical |
-| 2 CPU threads, no RAM prompt cache, no SWA checkpoints | 113 / 113 | identical |
-| 0.8B draft, at most 6 tokens, stopped below probability 0.6 | 133 / 144 | identical |
+| Previous request and server settings: top-p 0.98 and server default min-p 0.05 at temperature 0, 8 threads | 68 / 67 | reference |
+| Greedy without the CPU nucleus and min-p filters | 100 / 93 | identical |
+| 2 CPU threads, no RAM prompt cache, no SWA checkpoints, no memory fitting | 111 / 112 | identical |
+| 0.8B draft, at most 6 tokens, stopped below probability 0.6 | 132 / 142 | identical |
+
+In other sessions the first row measured 76 / 68 and the second 105 / 90 and 109 / 108: the slower settings vary
+with background load, while the last two rows stayed within 2.5 tok/s.
 
 The filters sorted the 107,520-token vocabulary on the CPU for every token; they cannot change a greedy argmax.
 With full GPU offload only the input embedding runs on the CPU, and fewer polling threads decoded faster.
 
-Speculation settings, Q4_K_M with 2 threads: at most 8 tokens with probability 0.7 gave 126 / 134 tok/s and
+Speculation settings, Q4_K_M with 2 threads, in a session where the draft-less setting gave 113 / 113: at most 8 tokens with probability 0.7 gave 126 / 134 tok/s and
 10 tokens with 0.8 gave 122 / 132. A Q4_K_M draft gave 123 / 128. With 8 threads and no probability floor, 2, 3, 4
 and 6 draft tokens gave 105, 119, 116 and 115 tok/s for English to Japanese. `--model-draft` alone does nothing in
 this revision; `--spec-type draft-simple` enables it.
 
 Not adopted:
 
-- Backend (GPU) sampling: 83 / 85 tok/s.
+- Backend (GPU) sampling: 83 / 85 tok/s, against 105 / 90 without it in the same session.
 - Metal environment switches (concurrency, graph optimization, fusion, residency sets): within noise for Q4_0
   in `llama-bench`; disabling shared buffers dropped it to 55 tok/s.
 - Microbatches of 256, 1024 and 2048 tokens: a 4096-token prompt processed at 1256, 1307 and 1226 tok/s, against
@@ -107,4 +111,5 @@ with English–Japanese scores within 0.0011 of BF16 for both, so Q4_K_M stays t
 - Only M1 Max was measured. Other chips may favor different quantizations or draft lengths.
 - Speculative decoding with greedy acceptance is equivalent to plain greedy decoding, but verification batches use
   different Metal kernels, so near-tied tokens could differ on other inputs. None differed here.
-- The Homebrew build shares the measured revision and ggml 0.28.0, but its binary was not run.
+- Homebrew's llama.cpp 0.8.0 is the measured llama.cpp revision, but it links Homebrew's separately packaged ggml,
+  which can be newer than the bundled ggml 0.28.0, and its binary was not run.

@@ -43,7 +43,8 @@ source .venv/bin/activate
     - numba
   - On macOS:
     - mlx-lm
-- For the llama.cpp backend: `llama-server` from llama.cpp b11960 (0.8.0) or newer, for example `brew install llama.cpp`
+- For the llama.cpp backend: `llama-server` from llama.cpp b11960 (0.8.0) or newer, for example `brew install llama.cpp`;
+  measurements used `scripts/build_llama_cpp.sh`
 
 ## Usage
 
@@ -401,7 +402,8 @@ and experimental groups below describe PLaMo 2.
 
 - mlx: Optimized for macOS with Apple Silicon (default on macOS)
 - llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool.
-  It starts in about a second, and with a draft model it decodes PLaMo 3 at about 130 tok/s on M1 Max
+  It starts in about a second (two with the draft model that servers and interactive mode load), and with the
+  draft it decodes PLaMo 3 at about 130 tok/s on M1 Max
 
 ### PLaMo 3 checkpoints on Apple Silicon
 
@@ -425,7 +427,9 @@ uv run python scripts/benchmark_plamo3.py --model pfnet/plamo-3-translate-2b --o
 ### PLaMo 3 on llama.cpp
 
 Install llama.cpp b11960 (0.8.0) or newer, for example with `brew install llama.cpp`, or build the tested
-revision as described [below](#llamacpp-runtime-and-plamo-2-ggufs). Then select the backend:
+revision as described [below](#llamacpp-runtime-and-plamo-2-ggufs). The measurements here used that build. Homebrew's
+llama.cpp 0.8.0 is the same revision but links Homebrew's separately packaged ggml, and it was not measured.
+Then select the backend:
 
 ```sh
 plamo-translate --backend-type llama.cpp --from English --to Japanese --input "Hello"
@@ -444,9 +448,11 @@ plamo-translate --backend-type llama.cpp --model /path/to/model.gguf --input "He
 `plamo-translate server --backend-type llama.cpp` and interactive mode also load
 [`pfnet/plamo-3-translate-0.8b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) Q4_0 (0.55 GB) as a
 draft model for speculative decoding: it proposes up to six tokens, and the 2B model checks them in one batch.
-One-shot translations skip it, because loading it takes longer than it saves on a single document. Pass
-`--draft-model <GGUF or repository>` to use a draft anyway, or `--draft-model none` to disable it. With `--model`,
-no draft is loaded unless `--draft-model` is given.
+One-shot translations skip it: loading it took 0.8 s, which on M1 Max pays off only after about 420 (Japanese to
+English) to 560 (English to Japanese) generated tokens, more than the fixtures' 350 to 390. Pass `--draft-model <GGUF or repository>` to use a draft
+anyway, for example for long documents, or `--draft-model none` to disable it. Other models than the default get a
+draft only with `--draft-model`. If the default draft cannot be downloaded, for example offline, translation
+continues without it.
 
 Measured on M1 Max with the English fixture ([summary](benchmarks/llama_cpp_plamo3_20261105/README.md)):
 
@@ -457,8 +463,8 @@ Measured on M1 Max with the English fixture ([summary](benchmarks/llama_cpp_plam
 | Q4_0 | none | 134 | 3.12 |
 | Q4_0 | 0.8B Q4_0 | 141 | 2.99 |
 
-The draft did not change any output. Before these settings the backend decoded Q4_K_M at 76 tok/s; greedy decoding
-no longer runs the CPU-side top-p and min-p filters over the whole vocabulary. The fused MLX kernels still decode
+The draft did not change any output. With the previous request and server settings, Q4_K_M decoded at 68 tok/s;
+greedy decoding no longer runs the CPU-side top-p and min-p filters over the whole vocabulary. The fused MLX kernels still decode
 faster (170 tok/s), but a complete one-shot CLI translation of a short sentence took 2.4 seconds with llama.cpp and
 6 to 7 seconds with MLX, which quantizes the original weights on every load.
 
@@ -534,12 +540,14 @@ The native process binds to loopback and is terminated when its owning MCP serve
 `PLAMO_TRANSLATE_CLI_LLAMA_SERVER` can specify the executable.
 
 The llama.cpp defaults are full GPU offload (`--gpu-layers 99`), Flash Attention, F16 KV cache,
-one inference slot, a 32768-token context, 2048-token batches, 512-token microbatches, and 2 CPU threads
-(8 with `--gpu-layers 0`). Override them with `--ctx-size`, `--batch-size`, `--ubatch-size`, `--threads`,
+one inference slot, a 32768-token context, 2048-token batches, 512-token microbatches, and 2 CPU threads on Apple
+Silicon with GPU layers (8 otherwise; set `--threads` for partial offload). Override them with `--ctx-size`, `--batch-size`, `--ubatch-size`, `--threads`,
 `--gpu-layers`, and `--flash-attn on|off|auto`. Use `--gpu-layers 0` for CPU execution. Greedy decoding, disabled
 repetition penalty, the translation-specific prompt, and the model's BOS/EOS settings preserve
-the intended translation behavior. Requests never reuse a prompt, so the server keeps no prompt cache or context
-checkpoints. It skips llama.cpp's memory fitting, which only probes when the GPU layers are given, and replaces the
+the intended translation behavior. With `PLAMO_TRANSLATE_CLI_TEMP` above 0, sampling uses temperature, top-p and
+top-k only, as in the MLX backend; llama.cpp's default min-p of 0.05 is not applied. Requests disable prompt caching,
+so each one, including the history of an interactive session, is processed from the start; the server therefore
+keeps no prompt cache or context checkpoints. It skips llama.cpp's memory fitting, which only probes when the GPU layers are given, and replaces the
 GGUF's chat template, which this backend does not use. Token/context exhaustion and interrupted responses are
 reported as errors, including in streaming mode.
 
@@ -569,7 +577,7 @@ content and do not interpret it as general translation accuracy.
 - --model MLX: local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b).
   llama.cpp: GGUF file or `<user>/<repo>[:QUANT or file.gguf]` (default: pfnet/plamo-3-translate-2b-GGUF:Q4_K_M)
 - --draft-model llama.cpp draft GGUF or repository, or `none` (default: pfnet/plamo-3-translate-0.8b-GGUF:Q4_0
-  for servers and interactive mode with the default model)
+  for `server` and interactive mode with the default model; otherwise none)
 - --precision MLX weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
 
 ## Configuration

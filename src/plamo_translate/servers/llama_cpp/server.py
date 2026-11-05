@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import os
+import platform
 import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -29,6 +32,8 @@ from plamo_translate.servers.utils import (
     construct_llm_input,
     find_free_port,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def find_llama_server(executable: str) -> str:
@@ -55,7 +60,7 @@ class LlamaCppOptions:
     ctx_size: int = 32768
     batch_size: int = 2048
     ubatch_size: int = 512
-    # None: 2 with GPU offload, where more polling threads only slowed decoding, otherwise 8.
+    # None: 2 with Metal offload, where more polling threads only slowed decoding, otherwise 8.
     threads: int | None = None
     gpu_layers: int = 99
     flash_attn: str = "on"
@@ -64,7 +69,8 @@ class LlamaCppOptions:
     def command(self, port: int) -> list[str]:
         executable = find_llama_server(self.executable)
         model = gguf_file(self.model, "--model")
-        threads = self.threads or (2 if self.gpu_layers else 8)
+        metal = sys.platform == "darwin" and platform.machine() == "arm64"
+        threads = self.threads or (2 if self.gpu_layers and metal else 8)
         if min(self.ctx_size, self.batch_size, self.ubatch_size, threads, self.startup_timeout) <= 0:
             raise ValueError("Context, batch, microbatch, threads and startup timeout must be positive.")
         speculation = []
@@ -118,7 +124,8 @@ class LlamaCppOptions:
             # -ngl is explicit, so fitting would only spend a second probing device memory.
             "--fit",
             "off",
-            # Requests never reuse prompts: skip saving slot states and SWA checkpoints for each one.
+            # Requests set cache_prompt to false, so nothing is reused: skip saving slot states and SWA
+            # checkpoints for each one.
             "--cache-ram",
             "0",
             "--ctx-checkpoints",
@@ -161,7 +168,7 @@ class LlamaCppRuntime:
                         if client.get(self.url + "/health").status_code == 200:
                             # Old PLaMo 2 loaders silently disable RoPE when layer 0 is Mamba.
                             log = os.pread(self.log.fileno(), 1024 * 1024, 0).decode("utf-8", errors="replace")
-                            validate_model_log(log)
+                            validate_model_log(log, draft=self.options.draft_model is not None)
                             return
                     except httpx.HTTPError:
                         pass
@@ -190,9 +197,12 @@ class LlamaCppRuntime:
             self.log = None
 
 
-def validate_model_log(log: str) -> None:
+def validate_model_log(log: str, draft: bool = False) -> None:
     if re.search(r"n_rot\s*=\s*0\b", log):
         raise RuntimeError("This llama.cpp build disables PLaMo 2 RoPE (n_rot = 0). Run scripts/build_llama_cpp.sh.")
+    if draft and "speculative decoding context initialized" not in log:
+        # llama-server keeps serving without the draft when it is incompatible, for example in vocabulary.
+        logger.warning("llama-server did not enable the draft model; decoding runs without speculation")
 
 
 def build_prompt(request: TranslateRequest, *, architecture: str) -> str:

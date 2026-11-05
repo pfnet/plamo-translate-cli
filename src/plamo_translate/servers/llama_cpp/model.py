@@ -50,9 +50,9 @@ def resolve_model(name: str, local_only: bool = False) -> str:
     try:
         if selector.lower().endswith(".gguf"):
             return hf_hub_download(repository, selector, local_files_only=local_only)
-        snapshot = Path(
-            snapshot_download(repository, allow_patterns=[f"*{selector}.gguf"], local_files_only=local_only)
-        )
+        # Hub patterns are case-sensitive; repositories spell quantizations both ways.
+        pattern = "*" + "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else c for c in selector) + ".gguf"
+        snapshot = Path(snapshot_download(repository, allow_patterns=[pattern], local_files_only=local_only))
     except LocalEntryNotFoundError as exc:
         if local_only:
             raise FileNotFoundError(f"{name} is not in the Hugging Face cache") from exc
@@ -65,6 +65,11 @@ def resolve_model(name: str, local_only: bool = False) -> str:
     if local_only and not matches:
         # A cached snapshot can hold another quantization only.
         raise FileNotFoundError(f"{name} is not in the Hugging Face cache")
+    if not matches and not any(snapshot.rglob("*.gguf")):
+        raise ValueError(
+            f"{repository} has no {selector} GGUF; for MLX checkpoints such as pfnet/plamo-3-translate-2b, "
+            "use the -GGUF repository or --backend-type mlx"
+        )
     found = ", ".join(p.name for p in matches) or "none"
     raise ValueError(f"Expected one {selector} GGUF in {repository}, found {found}. Pass <repo>:<file>.gguf instead.")
 
