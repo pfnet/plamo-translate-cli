@@ -35,8 +35,9 @@ SUPPORTED_LANGUAGES = [
     "English|Japanese",
 ]
 
-# Original weights; the MLX backend converts them to the requested precision on load.
-DEFAULT_MODEL_NAME = "pfnet/plamo-3-translate-2b"
+# The published MLX release is already 4bit. Other precisions are converted from the original weights on load.
+DEFAULT_MODEL_NAME = "pfnet/plamo-3-translate-2b-MLX-4bit"
+ORIGINAL_MODEL_NAME = "pfnet/plamo-3-translate-2b"
 PLAMO_TRANSLATE_CLI_MODEL_NAME = os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME", DEFAULT_MODEL_NAME)
 PLAMO_TRANSLATE_CLI_SERVER_START_PORT = int(os.environ.get("PLAMO_TRANSLATE_CLI_SERVER_START_PORT", 30000))
 PLAMO_TRANSLATE_CLI_SERVER_END_PORT = int(os.environ.get("PLAMO_TRANSLATE_CLI_SERVER_END_PORT", 30099))

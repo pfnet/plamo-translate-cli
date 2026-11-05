@@ -1,6 +1,7 @@
 """PLaMo 3 model, kernels and prompts on a tiny random model; no checkpoint is needed."""
 
 import json
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,9 +11,19 @@ from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint, pfml3_prompt
 
 mx = pytest.importorskip("mlx.core")
 nn = pytest.importorskip("mlx.nn")
-from plamo_translate.servers.mlx.plamo3 import KVCache, Model, ModelArgs, rope_frequencies, rope_table  # noqa: E402
+from mlx.utils import tree_flatten  # noqa: E402
+
+from plamo_translate.servers.mlx import plamo3_runtime  # noqa: E402
+from plamo_translate.servers.mlx.plamo3 import (  # noqa: E402
+    KVCache,
+    Model,
+    ModelArgs,
+    load_model,
+    rope_frequencies,
+    rope_table,
+)
 from plamo_translate.servers.mlx.plamo3_metal import FastDecoder  # noqa: E402
-from plamo_translate.servers.mlx.plamo3_runtime import quantize  # noqa: E402
+from plamo_translate.servers.mlx.plamo3_runtime import checkpoint_precision, quantize  # noqa: E402
 
 metal = pytest.mark.skipif(not mx.metal.is_available(), reason="Metal kernels require Apple Silicon")
 
@@ -43,6 +54,48 @@ def tiny_model(precision="bf16", window=8, seed=0):
 
 def materialize(caches):
     mx.eval([(cache.keys, cache.values) for cache in caches])
+
+
+def _published_dtype(name, array):
+    """MLX releases store packed weights, FP16 scales and biases, and BF16 dense weights."""
+    if name.endswith((".scales", ".biases")) or not mx.issubdtype(array.dtype, mx.floating):
+        return array
+    return array.astype(mx.bfloat16)
+
+
+def round_like_published(model):
+    """Round dense weights to BF16, as published, so a loaded checkpoint must match exactly."""
+    parameters = tree_flatten(model.parameters())
+    model.load_weights([(name, _published_dtype(name, array).astype(array.dtype)) for name, array in parameters])
+    mx.eval(model.parameters())
+    return model
+
+
+def published_model(layers=None, embedding=False):
+    """4bit projections and a dense lm_head, like pfnet/plamo-3-translate-2b-MLX-4bit.
+
+    `layers` maps module paths to their own quantization; `embedding` also quantizes the embedding table.
+    """
+    model = tiny_model(window=4)
+
+    def predicate(path, module):
+        if path == "model.embed_tokens":
+            return embedding
+        return isinstance(module, nn.Linear) and path != "lm_head" and (layers or {}).get(path, True)
+
+    nn.quantize(model, group_size=64, bits=4, class_predicate=predicate)
+    return round_like_published(model)
+
+
+def save_checkpoint(model, path, quantization=None):
+    mx.save_safetensors(
+        str(path / "model.safetensors"),
+        {name: _published_dtype(name, array) for name, array in tree_flatten(model.parameters())},
+    )
+    config = {**asdict(model.args), "model_type": "plamo3"}
+    if quantization:
+        config["quantization"] = quantization
+    (path / "config.json").write_text(json.dumps(config))
 
 
 def plain_logits(model, tokens, chunk):
@@ -182,6 +235,70 @@ def test_unsupported_quantization_falls_back():
     assert FastDecoder.supports(tiny_model("bf16"))
     assert not FastDecoder.supports(tiny_model("8bit"))
     assert not FastDecoder.supports(tiny_model("mixed"))
+
+
+def test_published_4bit_checkpoint_loads_unchanged(tmp_path):
+    override = {"model.layers.layers.0.mixer.qkv_proj": {"group_size": 64, "bits": 8}}
+    model = published_model(override)
+    save_checkpoint(model, tmp_path, {"group_size": 64, "bits": 4, **override, "model.embed_tokens": False, "lm_head": False})
+    loaded, _ = load_model(tmp_path)
+    assert loaded.model.layers.layers[0].mixer.qkv_proj.bits == 8
+    assert loaded.model.layers.layers[2].mlp.down_proj.bits == 4
+    assert not isinstance(loaded.lm_head, nn.QuantizedLinear)
+    assert loaded.lm_head.weight.dtype == mx.float16
+    tokens = list(range(1, 12))
+    np.testing.assert_array_equal(plain_logits(loaded, tokens, 4), plain_logits(model, tokens, 4))
+
+
+def test_quantized_embedding_keeps_floating_point_caches(tmp_path):
+    save_checkpoint(published_model(embedding=True), tmp_path, {"group_size": 64, "bits": 4})
+    loaded, _ = load_model(tmp_path)
+    assert isinstance(loaded.model.embed_tokens, nn.QuantizedEmbedding)
+    assert loaded.make_cache()[0].keys.dtype == mx.float16
+    reference, _ = load_model(tmp_path)
+    table = reference.model.embed_tokens
+    dense = nn.Embedding(table.num_embeddings, table.dims)
+    dense.weight = mx.dequantize(table.weight, table.scales, table.biases, table.group_size, table.bits)
+    reference.model.embed_tokens = dense
+    tokens = list(range(1, 12))
+    np.testing.assert_array_equal(plain_logits(loaded, tokens, 4), plain_logits(reference, tokens, 4))
+
+
+def test_original_checkpoint_loads_in_fp16_without_quantization(tmp_path):
+    model = round_like_published(tiny_model(window=4))
+    save_checkpoint(model, tmp_path)
+    loaded, _ = load_model(tmp_path)
+    assert not any(isinstance(module, nn.QuantizedLinear) for _, module in loaded.named_modules())
+    assert all(array.dtype == mx.float16 for _, array in tree_flatten(loaded.parameters()))
+    tokens = list(range(1, 12))
+    np.testing.assert_array_equal(plain_logits(loaded, tokens, 4), plain_logits(model, tokens, 4))
+
+
+@metal
+def test_kernels_match_mlx_with_a_dense_lm_head():
+    compare_kernels(published_model(), steps=16)
+
+
+def test_published_checkpoint_keeps_its_precision():
+    published = {"quantization": {"group_size": 64, "bits": 4}}
+    assert checkpoint_precision(published, None) == "4bit"
+    assert checkpoint_precision(published, "4bit") == "4bit"
+    assert checkpoint_precision(published, "") == "4bit"
+    with pytest.raises(ValueError, match="pfnet/plamo-3-translate-2b"):
+        checkpoint_precision(published, "8bit")
+    assert checkpoint_precision({"model_type": "plamo3"}, None) == "4bit"
+    assert checkpoint_precision(None, "bf16") == "bf16"
+
+
+def test_wrong_precision_is_rejected_before_download(monkeypatch):
+    monkeypatch.setattr(
+        plamo3_runtime,
+        "checkpoint_config",
+        lambda name: {"model_type": "plamo3", "quantization": {"group_size": 64, "bits": 4}},
+    )
+    monkeypatch.setattr(plamo3_runtime, "snapshot_download", lambda *args, **kwargs: pytest.fail("downloaded"))
+    with pytest.raises(ValueError, match="is 4bit"):
+        plamo3_runtime.Plamo3Translator("pfnet/plamo-3-translate-2b-MLX-4bit", "8bit")
 
 
 def message(content):

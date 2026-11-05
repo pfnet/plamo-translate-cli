@@ -61,8 +61,18 @@ def test_failed_child_startup_does_not_wait_forever(monkeypatch):
         main.wait_for_server_ready(DeadProcess())
 
 
-@pytest.mark.parametrize("precision", [None, "4bit", "6bit", "8bit", "mixed", "bf16"])
-def test_every_precision_quantizes_plamo3_by_default(monkeypatch, precision):
+@pytest.mark.parametrize(
+    ("precision", "expected"),
+    [
+        (None, "pfnet/plamo-3-translate-2b-MLX-4bit"),
+        ("4bit", "pfnet/plamo-3-translate-2b-MLX-4bit"),
+        ("6bit", "pfnet/plamo-3-translate-2b"),
+        ("8bit", "pfnet/plamo-3-translate-2b"),
+        ("mixed", "pfnet/plamo-3-translate-2b"),
+        ("bf16", "pfnet/plamo-3-translate-2b"),
+    ],
+)
+def test_default_is_the_mlx_release_unless_another_precision_needs_original_weights(monkeypatch, precision, expected):
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_PRECISION", raising=False)
     options = [] if precision is None else ["--precision", precision]
@@ -71,7 +81,7 @@ def test_every_precision_quantizes_plamo3_by_default(monkeypatch, precision):
     monkeypatch.setattr(main, "check_server_running", lambda: False)
     monkeypatch.setattr(main, "run_translate", lambda args: None)
     main.main()
-    assert main.os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] == "pfnet/plamo-3-translate-2b"
+    assert main.os.environ["PLAMO_TRANSLATE_CLI_MODEL_NAME"] == expected
     assert main.os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION") == precision
 
 
@@ -95,7 +105,7 @@ def test_running_server_with_another_model_is_named(monkeypatch, capsys):
     monkeypatch.setattr(main, "check_server_running", lambda: True)
     with pytest.raises(SystemExit):
         main.main()
-    assert "mlx: mlx-community/plamo-2-translate; requested mlx: pfnet/plamo-3-translate-2b" in capsys.readouterr().err
+    assert "mlx: mlx-community/plamo-2-translate; requested mlx: pfnet/plamo-3-translate-2b-MLX-4bit" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

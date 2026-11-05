@@ -15,10 +15,11 @@ from transformers import PreTrainedConfig
 from plamo_translate.servers.mlx.pfml3 import BOS, MSG, TAG, checkpoint_config, pfml3_prompt
 from plamo_translate.servers.mlx.plamo3 import load_model
 from plamo_translate.servers.mlx.plamo3_metal import FastDecoder
+from plamo_translate.servers.utils import ORIGINAL_MODEL_NAME
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
 
 GROUP_SIZE = 64
-# Files inference reads from a repository; the original weights are converted on load.
+# Files inference reads from a repository; original weights are converted on load.
 CHECKPOINT_FILES = ["*.json", "*.safetensors", "tokenizer.jsonl", "tokenization_plamo.py"]
 # Largest FP32 logit difference accepted between the kernels and the plain MLX ops.
 SELF_CHECK_TOLERANCE = 0.25
@@ -50,25 +51,37 @@ def quantize(model: nn.Module, precision: str) -> None:
     nn.quantize(model, group_size=GROUP_SIZE, bits=bits, class_predicate=predicate)
 
 
+def checkpoint_precision(config: dict | None, requested: str | None) -> str:
+    """Original weights are converted to the requested precision (4bit by default); MLX releases keep theirs."""
+    requested = requested or None
+    quantization = (config or {}).get("quantization")
+    if not quantization:
+        return requested or "4bit"
+    saved = f"{quantization['bits']}bit"
+    if requested not in (None, saved):
+        raise ValueError(
+            f"The checkpoint is {saved}; for {requested}, use original weights such as {ORIGINAL_MODEL_NAME}"
+        )
+    return saved
+
+
 def checkpoint_path(name: str) -> Path:
     """A local checkpoint directory, or a Hugging Face repository downloaded into the cache."""
     local = Path(name).expanduser()
     if local.is_dir():
         return local
-    config = checkpoint_config(name)
-    if config is not None and config.get("quantization"):
-        # Refuse before downloading the weights.
-        raise ValueError(f"{name} is quantized; use original weights such as pfnet/plamo-3-translate-2b")
     return Path(snapshot_download(name, allow_patterns=CHECKPOINT_FILES))
 
 
 class Plamo3Translator:
     def __init__(self, path: str, precision: str | None = None):
+        # Check the precision before downloading the weights.
+        self.precision = checkpoint_precision(checkpoint_config(path), precision)
         self.path = checkpoint_path(path)
-        self.precision = precision or "4bit"
         # FP16 keeps more mantissa bits than BF16; activations stayed far below its range on real text.
         self.model, self.config = load_model(self.path, mx.float16, lazy=True)
-        quantize(self.model, self.precision)
+        if not self.config.get("quantization"):
+            quantize(self.model, self.precision)
         mx.eval(self.model.parameters())
         with suppress_optional_gpu_dependency_warnings():
             self.tokenizer = load_tokenizer(

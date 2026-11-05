@@ -121,7 +121,7 @@ jobs:
     env:
       HF_HOME: ${{ github.workspace }}/.cache/hf
       HUGGINGFACE_HUB_CACHE: ${{ github.workspace }}/.cache/hf/hub
-      PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-3-translate-2b
+      PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-3-translate-2b-mlx-4bit
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
       PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'

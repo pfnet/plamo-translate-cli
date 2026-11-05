@@ -49,10 +49,11 @@ source .venv/bin/activate
 ### Model
 
 Without `--model`, the MLX backend translates with
-[`pfnet/plamo-3-translate-2b`](https://huggingface.co/pfnet/plamo-3-translate-2b).
-The first run downloads its original weights (5.76 GB) into the Hugging Face cache, and each
-load quantizes them to 4bit or to the precision given with `--precision`; `bf16` skips quantization
-and computes in FP16. The model is distributed under the
+[`pfnet/plamo-3-translate-2b-MLX-4bit`](https://huggingface.co/pfnet/plamo-3-translate-2b-MLX-4bit),
+PFN's 4bit MLX release of [`pfnet/plamo-3-translate-2b`](https://huggingface.co/pfnet/plamo-3-translate-2b).
+The first run downloads it (2.41 GB) into the Hugging Face cache. `--precision 6bit`, `8bit`, `mixed`
+or `bf16` uses the original weights (5.76 GB) instead and converts them on every load; `bf16` skips
+quantization and computes in FP16. The models are distributed under the
 [PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-en).
 
 PLaMo 2 remains available. Pass its repository with `--model`, or set
@@ -167,8 +168,8 @@ You can specify the precision of the model weight by giving a `--precision` opti
 $ plamo-translate server --precision 8bit
 ```
 
-The default PLaMo 3 model converts its original weights to the requested precision on every load;
-`bf16` keeps them unquantized and computes in FP16.
+With PLaMo 3, `4bit` uses the MLX release. Other precisions are converted from the original weights on
+every load; `bf16` keeps them unquantized and computes in FP16.
 
 ### PLaMo 2 checkpoints on MLX
 
@@ -315,7 +316,8 @@ local bytes. A summary of the measurements and publication checks is in
 
 Select them with `--model mlx-community/plamo-2-translate-8bit` or
 `--model mlx-community/plamo-2-translate-bf16`. Without `--model` or
-`PLAMO_TRANSLATE_CLI_MODEL_NAME`, `--precision` applies to the default PLaMo 3 model.
+`PLAMO_TRANSLATE_CLI_MODEL_NAME`, `--precision` selects PLaMo 3: `4bit` uses the MLX-4bit release,
+and other precisions convert `pfnet/plamo-3-translate-2b`.
 The exporter supports both precisions:
 
 ```sh
@@ -399,21 +401,23 @@ and experimental groups below describe PLaMo 2.
 
 ### PLaMo 3 checkpoints on Apple Silicon
 
-`pfnet/plamo-3-translate-2b` is the default model. `--model` also accepts the Hugging Face repository of another original PLaMo 3 translation checkpoint, or a local directory holding one. On first use the original weights are downloaded into the Hugging Face cache; they are converted and quantized each time they are loaded. The checkpoint type is read from its `config.json`:
+`pfnet/plamo-3-translate-2b-MLX-4bit` is the default model, and `pfnet/plamo-3-translate-2b` supplies the original weights for other precisions. `--model` also accepts the Hugging Face repository of another PLaMo 3 translation checkpoint, with original weights or quantized for MLX, or a local directory holding one; the FP8, W4A16, W4AFP8, NVFP4 and GGUF releases are not supported. On first use the weights are downloaded into the Hugging Face cache. Original weights are converted and quantized each time they are loaded; an MLX checkpoint that is already quantized keeps its precision, and requesting another one is an error. The checkpoint type is read from its `config.json`:
 
 ```sh
 plamo-translate --from English --to Japanese --input "Hello"
 plamo-translate --model /path/to/plamo-3-translate-checkpoint --from English --to Japanese --input "Hello"
 ```
 
-Already quantized checkpoints such as the MLX-4bit release are rejected before their weights are downloaded.
+The MLX-4bit release quantizes its projections with a method of its own and keeps `lm_head` in BF16, so its translations differ from the CLI's own 4bit conversion of the original weights (`--model pfnet/plamo-3-translate-2b --precision 4bit`). It stays closer to the original model's predictions and needs about a third of the memory at load (2.64 GB instead of 7.22 GB), but decodes about 15% slower; see the [release comparison](benchmarks/plamo3_mlx4bit_20261105/README.md).
 
-`--precision 4bit` (default) and `bf16` run on fused Metal kernels; `bf16` computes in FP16, which keeps more mantissa bits than BF16. Other precisions use plain MLX ops. On startup one decoded step is compared with plain MLX ops, and the server falls back to them with a warning if the kernels disagree. With `English|Japanese` the direction is chosen from the source text, since PLaMo 3 needs an explicit target language.
+`4bit` (default) and `bf16` run on fused Metal kernels; `bf16` computes in FP16, which keeps more mantissa bits than BF16. Other precisions use plain MLX ops. On startup one decoded step is compared with plain MLX ops, and the server falls back to them with a warning if the kernels disagree. With `English|Japanese` the direction is chosen from the source text, since PLaMo 3 needs an explicit target language.
 
-Measurements and limitations are in the [benchmark summary](benchmarks/plamo3_mlx_20261104/README.md). Reproduce them with:
+Measurements and limitations are in the [kernel benchmark summary](benchmarks/plamo3_mlx_20261104/README.md) and the [release comparison](benchmarks/plamo3_mlx4bit_20261105/README.md). Reproduce them with:
 
 ```sh
+uv run python scripts/benchmark_plamo3.py --model pfnet/plamo-3-translate-2b-MLX-4bit --output .local/benchmarks/plamo3-release
 uv run python scripts/benchmark_plamo3.py --model pfnet/plamo-3-translate-2b --output .local/benchmarks/plamo3-4bit
+uv run python scripts/evaluate_plamo3_release.py --output .local/benchmarks/plamo3-fidelity
 ```
 
 ### llama.cpp on Apple Silicon
@@ -507,7 +511,7 @@ content and do not interpret it as general translation accuracy.
 - --input TEXT Input text to translate
 - --from TEXT Input language for translation (default: English)
 - --to TEXT Output language for translation (default: Japanese)
-- --model Local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b)
+- --model Local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b-MLX-4bit; pfnet/plamo-3-translate-2b for precisions other than 4bit)
 - --precision Model weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
 
 ## Configuration

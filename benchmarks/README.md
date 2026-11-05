@@ -5,7 +5,8 @@ conditions, aggregate results and limitations; exclude individual logs, detailed
 JSON, generated translations, absolute local paths and machine-wide process lists.
 Raw output must stay in an ignored directory such as `.local/benchmarks/`.
 
-- [PLaMo 3 MLX measurements (default model)](plamo3_mlx_20261104/README.md)
+- [PLaMo 3 MLX-4bit release, the default model](plamo3_mlx4bit_20261105/README.md)
+- [PLaMo 3 fused Metal kernels on original weights](plamo3_mlx_20261104/README.md)
 - [PLaMo 2 MLX measurements](../README.md#measured-result-2026-10-07)
 - [llama.cpp measurements](llama_cpp_20261007/README.md)
 - [Standalone MLX release validation](releases/2026-10-07/README.md)

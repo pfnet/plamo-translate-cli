@@ -263,7 +263,7 @@ class FastDecoder:
                 rows % _ROWS_PER_THREADGROUP == 0 for rows in (args.intermediate_size, model.lm_head.weight.shape[0])
             )
             and all(
-                (p.bits, p.group_size) == (4, 64) if _is_quantized(p) else p.weight.dtype == mx.float16
+                (p.bits, p.group_size, p.mode) == (4, 64, "affine") if _is_quantized(p) else p.weight.dtype == mx.float16
                 for p in _projections(model)
             )
         )

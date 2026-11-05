@@ -19,6 +19,7 @@ from plamo_translate.clients import translate
 from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
 from plamo_translate.servers.utils import (
     DEFAULT_MODEL_NAME,
+    ORIGINAL_MODEL_NAME,
     PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE,
     PLAMO_TRANSLATE_CLI_REPETITION_PENALTY,
     SUPPORTED_LANGUAGES,
@@ -257,7 +258,10 @@ def main() -> None:
     )
     global_parser.add_argument(
         "--model",
-        help=f"Local GGUF for llama.cpp, or MLX model path/repository (MLX default: {DEFAULT_MODEL_NAME})",
+        help=(
+            f"Local GGUF for llama.cpp, or MLX model path/repository "
+            f"(MLX default: {DEFAULT_MODEL_NAME}; {ORIGINAL_MODEL_NAME} for precisions other than 4bit)"
+        ),
     )
     global_parser.add_argument(
         "--llama-server",
@@ -324,12 +328,14 @@ def main() -> None:
     args.backend_type = args.backend_type or (config.get("backend_type", "mlx") if running else "mlx")
     if args.backend_type == "llama.cpp" and args.precision is not None:
         parser.error("For llama.cpp, select precision with the GGUF passed to --model; --precision is for MLX.")
-    precision = (args.precision or os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION")) if args.backend_type == "mlx" else None
+    precision = (
+        (args.precision or os.environ.get("PLAMO_TRANSLATE_CLI_PRECISION") or None) if args.backend_type == "mlx" else None
+    )
     model_name = args.model or os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")
     if model_name is None and running and precision is None:
         model_name = config.get("model_name")
     if model_name is None and args.backend_type == "mlx":
-        model_name = DEFAULT_MODEL_NAME
+        model_name = DEFAULT_MODEL_NAME if precision in (None, "4bit") else ORIGINAL_MODEL_NAME
     if args.command != "show-claude-config" and model_name is None:
         parser.error("llama.cpp requires --model /path/to/model.gguf (or PLAMO_TRANSLATE_CLI_MODEL_NAME).")
     if args.backend_type == "llama.cpp" and model_name:

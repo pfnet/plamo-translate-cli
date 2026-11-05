@@ -243,7 +243,8 @@ class Model(nn.Module):
         self.lm_head = nn.Linear(args.hidden_size, ((args.vocab_size + 15) // 16) * 16, bias=False)
 
     def make_cache(self, dtype: mx.Dtype | None = None) -> list[KVCache]:
-        dtype = dtype or self.model.embed_tokens.weight.dtype
+        # The norms hold the compute dtype; a quantized embedding table stores packed integers.
+        dtype = dtype or self.model.norm.weight.dtype
         return [
             KVCache(layer.mixer.kv_heads, layer.mixer.head_dim, layer.mixer.window, dtype)
             for layer in self.model.layers.layers
@@ -276,15 +277,27 @@ def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = Fals
     config = load_config(path)
     if config.get("model_type") != "plamo3":
         raise ValueError(f"Expected a PLaMo 3 checkpoint, got {config.get('model_type')}")
-    if config.get("quantization"):
-        raise ValueError(
-            "PLaMo 3 needs original weights such as pfnet/plamo-3-translate-2b; they are quantized on load"
-        )
     model = Model(ModelArgs.from_dict(config))
     weights = {}
     for shard in sorted(path.glob("model*.safetensors")):
         weights.update(mx.load(str(shard)))
-    model.load_weights([(name, array.astype(dtype)) for name, array in weights.items()])
+    if quantization := config.get("quantization"):
+        # MLX releases store packed weights with scales and biases. Quantize exactly the layers that have
+        # them; per-layer entries in the config override the defaults, as in mlx-lm.
+        nn.quantize(
+            model,
+            group_size=quantization["group_size"],
+            bits=quantization["bits"],
+            mode=quantization.get("mode", "affine"),
+            class_predicate=lambda name, _: f"{name}.scales" in weights and quantization.get(name, True),
+        )
+    # Packed integer weights keep their dtype; scales, biases and dense weights use the compute dtype.
+    model.load_weights(
+        [
+            (name, array.astype(dtype) if mx.issubdtype(array.dtype, mx.floating) else array)
+            for name, array in weights.items()
+        ]
+    )
     if not lazy:
         mx.eval(model.parameters())
     return model, config
