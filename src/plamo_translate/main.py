@@ -97,6 +97,9 @@ async def print_translation(
     async for result in client.translate(messages):
         messages[-1]["content"] += result
         print(result, end="", flush=True)
+    if not messages[-1]["content"].endswith("\n"):
+        # PLaMo 3 stops without PLaMo 2's trailing newline; end the line for the shell or the next prompt.
+        print(flush=True)
 
     return messages
 
