@@ -6,7 +6,7 @@ import time
 import pytest
 
 from plamo_translate.main import check_server_running
-from plamo_translate.servers.utils import PLAMO_TRANSLATE_CLI_SERVER_START_PORT, update_config
+from plamo_translate.servers.utils import DEFAULT_MODEL_NAME, PLAMO_TRANSLATE_CLI_SERVER_START_PORT, update_config
 
 CLI_TIMEOUT_SECONDS = int(os.environ.get("PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS", "900"))
 SERVER_STARTUP_TIMEOUT_SECONDS = int(os.environ.get("PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS", "900"))
@@ -43,7 +43,8 @@ def stop_subprocess(process: subprocess.Popen[str] | None) -> None:
         process.wait(timeout=5)
 
 
-def test_plamo_translate_server_roundtrip_with_real_model():
+def test_plamo_translate_server_roundtrip_with_real_model(monkeypatch):
+    monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
     server_process = None
     try:
         server_process = subprocess.Popen(
@@ -56,6 +57,7 @@ def test_plamo_translate_server_roundtrip_with_real_model():
 
         config = update_config()
         assert config.get("port") == PLAMO_TRANSLATE_CLI_SERVER_START_PORT
+        assert config.get("model_name") == DEFAULT_MODEL_NAME
 
         text_to_translate = "Proud, but humble"
         result = subprocess.run(
@@ -82,7 +84,7 @@ def test_plamo_translate_server_roundtrip_with_real_model():
 
 def test_plamo_translate_4bit_completions_issue_10(monkeypatch, tmp_path):
     """The reported short word must translate, including across interactive turns."""
-    model_name = "mlx-community/plamo-2-translate"
+    model_name = DEFAULT_MODEL_NAME
     monkeypatch.setenv("PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER", "0")
     monkeypatch.setenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", model_name)
     monkeypatch.setenv("PLAMO_TRANSLATE_CLI_TEMP", "0.0")

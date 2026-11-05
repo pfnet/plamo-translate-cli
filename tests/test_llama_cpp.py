@@ -171,15 +171,16 @@ def test_dead_mcp_child_fails_without_waiting(monkeypatch):
 
 
 @pytest.mark.parametrize("stream", [True, False])
-def test_interactive_history_retains_translation(capsys, stream):
+@pytest.mark.parametrize("translation", ["こんにちは。", "こんにちは。\n"])
+def test_interactive_history_retains_translation(capsys, stream, translation):
     class Client:
         async def translate(self, messages):
-            yield "こんにちは。"
+            yield translation
 
     messages = [{"role": "user", "content": "output lang=Japanese\n"}]
     result = asyncio.run(print_translation(Client(), messages, stream))
-    assert result[-1]["content"] == "output lang=Japanese\nこんにちは。"
-    assert capsys.readouterr().out == "こんにちは。"
+    assert result[-1]["content"] == "output lang=Japanese\n" + translation
+    assert capsys.readouterr().out == "こんにちは。\n"
 
 
 def test_cli_rejects_missing_gguf_without_hanging(tmp_path):
