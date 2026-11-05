@@ -472,8 +472,14 @@ Q4_K_M is the default because the model card reports Q4_0 0.90 chrF++ lower than
 Japanese and other languages, while both stay within 0.0011 of BF16 on its English–Japanese metrics.
 
 A BF16 GGUF converted from the original weights translated both fixtures byte-identically to the MLX FP16 backend.
-llama.cpp ignores the GGUF's `yarn_truncate = false` and rounds the YaRN correction range of the three full-attention
-layers; on the fixtures this changed FP32 logits by a mean KL divergence below 1e-4, far less than 4bit quantization.
+No llama.cpp release honors the GGUF's `yarn_truncate = false` yet
+([#30206](https://github.com/ggml-org/llama.cpp/pull/30206), [#30337](https://github.com/ggml-org/llama.cpp/pull/30337)):
+it widens the YaRN correction range of the three full-attention layers from 13.96–30.02 to 13–31. The error grows
+with input length, to a KL divergence of 0.04 at 2,048 tokens and 0.66 at 16,384, so the backend passes
+`--yarn-beta-fast` and `--yarn-beta-slow` values that make llama.cpp round to 14–30 instead, cutting it to 3e-4 and
+5e-3. In an 8,000-token document, 66 of 315 lines had differed from the MLX backend, including a mistranslated term;
+with the 14–30 range, 2 to 24 did ([summary](benchmarks/llama_cpp_plamo3_yarn_20261105/README.md)). These options
+must be removed once a llama.cpp release honors `yarn_truncate`.
 
 ### llama.cpp runtime and PLaMo 2 GGUFs
 

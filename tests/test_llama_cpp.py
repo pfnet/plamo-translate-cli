@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import struct
 import subprocess
@@ -19,6 +20,7 @@ from plamo_translate.servers.llama_cpp.model import (
     DEFAULT_GGUF_MODEL,
     canonical_model,
     gguf_architecture,
+    gguf_metadata,
     resolve_model,
     same_model,
 )
@@ -30,6 +32,7 @@ from plamo_translate.servers.llama_cpp.server import (
     completion_events,
     completion_payload,
     validate_model_log,
+    yarn_range_arguments,
 )
 from plamo_translate.servers.utils import Message, TranslateRequest
 
@@ -59,12 +62,28 @@ def gguf_string(text):
     return struct.pack("<Q", len(data)) + data
 
 
-def write_gguf(path, architecture="plamo3", before=()):
-    """A header-only GGUF; `before` holds (key, value type, encoded value) entries placed ahead of the architecture."""
-    entries = [*before, ("general.architecture", 8, gguf_string(architecture))]
+def write_gguf(path, architecture="plamo3", before=(), after=()):
+    """A header-only GGUF; `before` and `after` hold (key, value type, encoded value) entries around the architecture."""
+    entries = [*before, ("general.architecture", 8, gguf_string(architecture)), *after]
     body = b"".join(gguf_string(key) + struct.pack("<I", kind) + value for key, kind, value in entries)
     path.write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, len(entries)) + body)
     return path
+
+
+def plamo3_rope(truncate=False, beta_fast=32, beta_slow=1, dimension_count=None):
+    """The RoPE entries of the official PLaMo 3 Translate GGUFs, unless overridden."""
+    entries = [
+        ("plamo3.rope.scaling.type", 8, gguf_string("yarn")),
+        ("plamo3.rope.scaling.factor", 6, struct.pack("<f", 256)),
+        ("plamo3.rope.scaling.original_context_length", 4, struct.pack("<I", 4096)),
+        ("plamo3.rope.scaling.yarn_beta_fast", 6, struct.pack("<f", beta_fast)),
+        ("plamo3.rope.scaling.yarn_beta_slow", 6, struct.pack("<f", beta_slow)),
+        ("plamo3.rope.freq_base", 6, struct.pack("<f", 1_000_000)),
+        ("plamo3.attention.key_length", 4, struct.pack("<I", 128)),
+    ]
+    if dimension_count is not None:
+        entries.append(("plamo3.rope.dimension_count", 4, struct.pack("<I", dimension_count)))
+    return [*entries, ("plamo3.rope.scaling.yarn_truncate", 7, bytes([truncate]))]
 
 
 def test_prompt_preserves_template_and_does_not_mutate_request():
@@ -135,6 +154,69 @@ def test_gguf_architecture_skips_every_value_type(tmp_path):
     ]
     assert gguf_architecture(str(write_gguf(tmp_path / "plamo3.gguf", before=before))) == "plamo3"
     assert gguf_architecture(str(write_gguf(tmp_path / "plamo2.gguf", "plamo2"))) == "plamo2"
+
+
+def test_gguf_architecture_stops_at_the_architecture(tmp_path):
+    # Entries after the architecture are not read: an unknown value type there does not matter.
+    path = write_gguf(tmp_path / "model.gguf", after=[("future", 99, b"")])
+    assert gguf_architecture(str(path)) == "plamo3"
+    with pytest.raises(ValueError, match="unknown GGUF value type"):
+        gguf_metadata(str(path))
+
+
+def test_gguf_metadata_accepts_strings_that_are_not_utf8(tmp_path):
+    # llama.cpp loads such files, so reading the YaRN keys must not stop them.
+    after = [("general.name", 8, struct.pack("<Q", 1) + b"\xff"), *plamo3_rope()]
+    metadata = gguf_metadata(str(write_gguf(tmp_path / "model.gguf", after=after)))
+    assert metadata["general.name"] == "\ufffd"
+    assert yarn_range_arguments(metadata)
+
+
+def test_gguf_metadata_reads_scalars_and_strings(tmp_path):
+    before = [*plamo3_rope(), ("tokens", 9, struct.pack("<IQ", 8, 1) + gguf_string("<|plamo:tag|>"))]
+    metadata = gguf_metadata(str(write_gguf(tmp_path / "model.gguf", before=before)))
+    assert metadata["general.architecture"] == "plamo3"
+    assert metadata["plamo3.rope.scaling.type"] == "yarn"
+    assert metadata["plamo3.rope.scaling.original_context_length"] == 4096
+    assert metadata["plamo3.rope.freq_base"] == 1_000_000
+    assert metadata["plamo3.rope.scaling.yarn_truncate"] is False
+    assert "tokens" not in metadata
+
+
+def corr_dim(beta, dimensions=128):
+    """ggml_rope_yarn_corr_dim for the RoPE of the official PLaMo 3 Translate GGUFs."""
+    return dimensions * math.log(4096 / (beta * 2 * math.pi)) / (2 * math.log(1_000_000))
+
+
+@pytest.mark.parametrize(
+    "rope,dimensions,betas",
+    [
+        # The official GGUFs: llama.cpp widens the exact 13.96..30.02 to 13..31.
+        ({}, 128, (32, 1)),
+        # Other betas and a rotary dimension count below the head size must be read from the GGUF.
+        ({"beta_fast": 16, "beta_slow": 2, "dimension_count": 64}, 64, (16, 2)),
+    ],
+)
+def test_yarn_range_moves_to_nearest_whole_dimensions(tmp_path, rope, dimensions, betas):
+    metadata = gguf_metadata(str(write_gguf(tmp_path / "model.gguf", before=plamo3_rope(**rope))))
+    arguments = yarn_range_arguments(metadata)
+    options = dict(zip(arguments[::2], arguments[1::2]))
+    low = corr_dim(float(options["--yarn-beta-fast"]), dimensions)
+    high = corr_dim(float(options["--yarn-beta-slow"]), dimensions)
+    exact = corr_dim(betas[0], dimensions), corr_dim(betas[1], dimensions)
+    assert (math.floor(exact[0]), math.ceil(exact[1])) != (round(exact[0]), round(exact[1]))
+    # llama.cpp applies floor and ceil; with these betas they land on the nearest whole dimensions.
+    assert (math.floor(low), math.ceil(high)) == (round(exact[0]), round(exact[1]))
+    # A llama.cpp that keeps the range fractional would use the same dimensions within 0.001.
+    assert abs(low - round(exact[0])) < 0.0011 and abs(high - round(exact[1])) < 0.0011
+
+
+def test_yarn_range_is_left_alone_unless_the_gguf_keeps_it_fractional(tmp_path):
+    truncated = gguf_metadata(str(write_gguf(tmp_path / "truncated.gguf", before=plamo3_rope(truncate=True))))
+    assert yarn_range_arguments(truncated) == []
+    unspecified = gguf_metadata(str(write_gguf(tmp_path / "unspecified.gguf", before=plamo3_rope()[:-1])))
+    assert yarn_range_arguments(unspecified) == []
+    assert yarn_range_arguments(gguf_metadata(str(write_gguf(tmp_path / "plamo2.gguf", "plamo2")))) == []
 
 
 @pytest.mark.parametrize("content", [b"", b"GGML" + bytes(20), b"GGUF" + struct.pack("<IQQ", 1, 0, 0)])
@@ -248,6 +330,10 @@ def test_command_tunes_server_and_adds_draft(monkeypatch, tmp_path):
     assert command[command.index("--model-draft") + 1] == str(draft)
     assert command[command.index("--spec-type") + 1] == "draft-simple"
     assert command[command.index("--gpu-layers-draft") + 1] == "99"
+    assert "--yarn-beta-fast" not in command
+    yarn = LlamaCppOptions(str(write_gguf(tmp_path / "yarn.gguf", before=plamo3_rope())), sys.executable).command(8080)
+    assert yarn[yarn.index("--yarn-beta-fast") + 1] == "31.738495"
+    assert yarn[yarn.index("--yarn-beta-slow") + 1] == "1.0040927"
     cpu = LlamaCppOptions(str(model), sys.executable, gpu_layers=0).command(8080)
     assert cpu[cpu.index("--threads") + 1] == "8"
     assert "--model-draft" not in cpu

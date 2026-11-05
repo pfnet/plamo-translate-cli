@@ -101,6 +101,11 @@ changed teacher-forced logits by a mean KL divergence of 9e-6 and 1e-5 on the fi
 sequence, with 100%, 100% and 99.91% top-1 agreement and reference NLL within 0.0014. 4bit quantization moves
 logits by a KL divergence of about 0.018.
 
+Correction: these short, partly repeated sequences hid the error, which grows with input length. Source-text
+predictions moved by a KL divergence of 0.04 at 2,048 tokens and 0.66 at 16,384, and an 8,000-token document
+translated differently in 66 of 315 lines. The backend now corrects most of it; see the
+[YaRN range summary](../llama_cpp_plamo3_yarn_20261105/README.md).
+
 chrF against the supplied references, English to Japanese / Japanese to English: BF16 GGUF 86.2 / 84.7,
 Q4_K_M 83.0 / 85.6, Q4_0 88.0 / 84.8, MLX 4bit 87.4 / 84.5. One document per direction cannot rank these. The model
 card's evaluation shows Q4_K_M within 0.02 chrF++ of BF16 on FLORES+ Japanese-multilingual pairs and Q4_0 0.90 lower,

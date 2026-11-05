@@ -8,6 +8,7 @@ Raw output must stay in an ignored directory such as `.local/benchmarks/`.
 - [PLaMo 3 MLX measurements (default model)](plamo3_mlx_20261104/README.md)
 - [PLaMo 2 MLX measurements](../README.md#measured-result-2026-10-07)
 - [PLaMo 3 llama.cpp measurements](llama_cpp_plamo3_20261105/README.md)
+- [PLaMo 3 YaRN range on llama.cpp](llama_cpp_plamo3_yarn_20261105/README.md)
 - [PLaMo 2 llama.cpp measurements](llama_cpp_20261007/README.md)
 - [Standalone MLX release validation](releases/2026-10-07/README.md)
 

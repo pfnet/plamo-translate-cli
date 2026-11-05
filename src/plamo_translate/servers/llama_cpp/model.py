@@ -82,6 +82,15 @@ def same_model(first: str | None, second: str | None) -> bool:
 
 def gguf_architecture(path: str) -> str:
     """`general.architecture` from a GGUF header, read without loading any tensor."""
+    metadata = gguf_metadata(path, until="general.architecture")
+    if not isinstance(metadata.get("general.architecture"), str):
+        raise ValueError(f"{path} does not declare general.architecture")
+    return metadata["general.architecture"]
+
+
+def gguf_metadata(path: str, until: str | None = None) -> dict:
+    """Scalar and string values of a GGUF header, up to and including the key `until`; arrays are skipped."""
+    metadata = {}
     with open(path, "rb") as stream:
 
         def read(form: str):
@@ -117,8 +126,14 @@ def gguf_architecture(path: str) -> str:
             raise ValueError(f"{path} is not a GGUF version 2 or 3 file")
         read("Q")  # tensor count
         for _ in range(read("Q")):
-            key, kind = string(), read("I")
-            if key == b"general.architecture" and kind == _STRING:
-                return string().decode("utf-8")
-            skip(kind)
-    raise ValueError(f"{path} does not declare general.architecture")
+            # llama.cpp does not require UTF-8 strings, so neither does this reader.
+            key, kind = string().decode("utf-8", "replace"), read("I")
+            if kind in _SCALARS:
+                metadata[key] = read(_SCALARS[kind])
+            elif kind == _STRING:
+                metadata[key] = string().decode("utf-8", "replace")
+            else:
+                skip(kind)
+            if key == until:
+                break
+    return metadata

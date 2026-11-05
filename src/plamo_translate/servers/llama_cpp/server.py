@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import platform
 import re
@@ -17,7 +18,7 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 
-from plamo_translate.servers.llama_cpp.model import SUPPORTED_ARCHITECTURES, gguf_architecture
+from plamo_translate.servers.llama_cpp.model import SUPPORTED_ARCHITECTURES, gguf_architecture, gguf_metadata
 from plamo_translate.servers.mlx.pfml3 import pfml3_prompt
 from plamo_translate.servers.utils import (
     INSTRUCTION,
@@ -46,6 +47,37 @@ def gguf_file(name: str, option: str) -> str:
     if not path.is_file() or path.suffix.lower() != ".gguf":
         raise ValueError(f"{option} must be an existing GGUF file or a Hugging Face GGUF repository (see README).")
     return str(path)
+
+
+def yarn_range_arguments(metadata: dict) -> list[str]:
+    """llama-server options that bring a fractional YaRN correction range to its nearest whole dimensions.
+
+    PLaMo 3 ramps between fractional dimensions (`truncate: false`; 13.96 to 30.02 for the 2B models), but no
+    llama.cpp release honors that yet (ggml-org/llama.cpp#30206, #30337): floor and ceil widen the range to 13 to 31.
+    The angle error grows with the distance between tokens: on source text, the KL divergence from the exact range
+    reached 0.04 at 2,048 tokens and 0.66 at 16,384. Betas whose dimensions lie just inside the nearest whole numbers
+    make floor and ceil land on 14 and 30, cutting it to 3e-4 and 5e-3. A llama.cpp with those changes would use
+    14.001 to 29.999 instead of the exact range, so drop these options once a release honors `yarn_truncate`.
+    """
+    architecture = metadata.get("general.architecture")
+    scaling = f"{architecture}.rope.scaling."
+    if metadata.get(scaling + "type") != "yarn" or metadata.get(scaling + "yarn_truncate", True):
+        return []
+    dimensions = metadata.get(f"{architecture}.rope.dimension_count") or metadata.get(
+        f"{architecture}.attention.key_length"
+    )
+    original = metadata.get(scaling + "original_context_length")
+    base = metadata.get(f"{architecture}.rope.freq_base")
+    if not dimensions or not original or not base:
+        return []
+    # ggml_rope_yarn_corr_dim and its inverse.
+    scale = dimensions / (2 * math.log(base))
+    low = round(scale * math.log(original / (metadata.get(scaling + "yarn_beta_fast", 32.0) * 2 * math.pi))) + 0.001
+    high = round(scale * math.log(original / (metadata.get(scaling + "yarn_beta_slow", 1.0) * 2 * math.pi))) - 0.001
+    if not 0 < low < high:
+        return []
+    beta = lambda dimension: original / (2 * math.pi * math.exp(dimension / scale))  # noqa: E731
+    return ["--yarn-beta-fast", f"{beta(low):.8g}", "--yarn-beta-slow", f"{beta(high):.8g}"]
 
 
 @dataclass(frozen=True)
@@ -130,6 +162,7 @@ class LlamaCppOptions:
             # The n_rot line checked by validate_model_log is logged at this verbosity.
             "--log-verbosity",
             "4",
+            *yarn_range_arguments(gguf_metadata(model)),
             *speculation,
         ]
 
