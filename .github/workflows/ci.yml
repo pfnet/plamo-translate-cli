@@ -155,3 +155,60 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
+
+  llama-cpp-integration-test:
+    needs: build-wheel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux: the pinned llama.cpp from scripts/build_llama_cpp.sh on the CPU. macOS: Homebrew's llama.cpp on Metal.
+        os: [ubuntu-latest, macos-latest]
+    env:
+      PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
+      PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
+      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+      - name: Cache the llama.cpp checkout and build
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: .local/llama.cpp
+          key: ${{ runner.os }}-llama-cpp-${{ hashFiles('scripts/build_llama_cpp.sh', 'scripts/patches/*') }}
+      - name: Build llama.cpp with the pinned script
+        if: runner.os == 'Linux'
+        run: |
+          CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)" scripts/build_llama_cpp.sh
+          echo "PLAMO_TRANSLATE_CLI_LLAMA_SERVER=$GITHUB_WORKSPACE/.local/llama.cpp/build/bin/llama-server" >> "$GITHUB_ENV"
+      - name: Install llama.cpp from Homebrew
+        if: runner.os == 'macOS'
+        run: |
+          brew install llama.cpp
+          echo "PLAMO_TRANSLATE_CLI_LLAMA_SERVER=$(command -v llama-server)" >> "$GITHUB_ENV"
+      - name: Show the llama.cpp version
+        run: '"$PLAMO_TRANSLATE_CLI_LLAMA_SERVER" --version'
+      - name: Install wheel and test runner
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          echo "$RUNNER_TEMP/wheel-venv/bin" >> "$GITHUB_PATH"
+          cp -R tests "$RUNNER_TEMP/wheel-tests"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install --upgrade pip
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install "$GITHUB_WORKSPACE"/dist/*.whl
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip check
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install pytest
+      # The GGUFs (2.4 GB) are downloaded by the CLI itself rather than cached: the repository's
+      # Actions cache already holds the 4.2 GB MLX checkpoint of its 10 GB limit.
+      - name: Run real-model tests against the installed wheel
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest -s wheel-tests/test_llama_cpp_integration.py
