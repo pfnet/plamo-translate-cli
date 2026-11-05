@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 from sacrebleu.metrics import CHRF
 
+from plamo_translate.servers.llama_cpp.model import canonical_model, gguf_architecture, resolve_model
 from plamo_translate.servers.llama_cpp.server import (
     LlamaCppOptions,
     LlamaCppRuntime,
@@ -24,7 +25,7 @@ from plamo_translate.servers.utils import Message, TranslateRequest
 
 
 async def measure(runtime, request, reference, directory, label):
-    payload = completion_payload(request, max_tokens=4096)
+    payload = completion_payload(request, architecture=runtime.architecture, max_tokens=4096)
     chunks, events = [], []
     first_token = None
     start = time.perf_counter()
@@ -64,7 +65,8 @@ async def measure(runtime, request, reference, directory, label):
 def main():
     parser = argparse.ArgumentParser(description="Compare complete translations, cold prompts and warm model weights.")
     parser.add_argument("--llama-server", required=True)
-    parser.add_argument("--models", nargs="+", required=True)
+    parser.add_argument("--models", nargs="+", required=True, help="GGUF files or <user>/<repo>[:QUANT]")
+    parser.add_argument("--draft-model", help="Draft GGUF or <user>/<repo>[:QUANT] for speculative decoding")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--input", type=Path, default=Path("tests/fixtures/translation.en.txt"))
     parser.add_argument("--reference", type=Path, default=Path("tests/fixtures/translation.ja.txt"))
@@ -72,7 +74,7 @@ def main():
     parser.add_argument("--ctx-size", type=int, default=32768)
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--ubatch-size", type=int, default=512)
-    parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--threads", type=int, help="Default: 2 with GPU offload")
     parser.add_argument("--flash-attn", choices=["on", "off"], default="on")
     args = parser.parse_args()
     if args.repeats < 1:
@@ -90,7 +92,7 @@ def main():
         "llama_version": subprocess.run([args.llama_server, "--version"], capture_output=True, text=True).stdout,
         "input_sha256": hashlib.sha256(args.input.read_bytes()).hexdigest(),
         "reference_sha256": hashlib.sha256(args.reference.read_bytes()).hexdigest(),
-        "payload": completion_payload(request, max_tokens=4096),
+        "draft_model": args.draft_model,
         "note": "Single supplied example; chrF measures reference overlap, not general translation accuracy.",
     }
     native_dir = Path(args.llama_server).resolve().parent
@@ -98,12 +100,23 @@ def main():
         str(p): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in [Path(args.llama_server).resolve(), *sorted(native_dir.glob("*.dylib"))]
     }
+    draft = resolve_model(canonical_model(args.draft_model)) if args.draft_model else None
+    models = {name: resolve_model(canonical_model(name)) for name in args.models}
+    stems = [Path(model).stem for model in models.values()]
+    if len(set(stems)) != len(stems):
+        # Outputs are named after the file; two files with one name would overwrite each other.
+        parser.error("--models must have distinct file names; benchmark them in separate --output directories")
+    metadata["payloads"] = {
+        name: completion_payload(request, architecture=gguf_architecture(model), max_tokens=4096)
+        for name, model in models.items()
+    }
     (args.output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
     results = []
-    for model in args.models:
+    for model in models.values():
         options = LlamaCppOptions(
-            model=str(Path(model).resolve()),
+            model=model,
             executable=str(Path(args.llama_server).resolve()),
+            draft_model=draft,
             ctx_size=args.ctx_size,
             batch_size=args.batch_size,
             ubatch_size=args.ubatch_size,
@@ -111,26 +124,27 @@ def main():
             flash_attn=args.flash_attn,
         )
         runtime = LlamaCppRuntime(options)
-        print(f"START {Path(model).stem}", flush=True)
+        stem = Path(model).stem + ("-draft" if draft else "")
+        print(f"START {stem}", flush=True)
         try:
             runtime.start()
             warmup = TranslateRequest(
                 messages=[Message(role="user", content="Hello.")], source_language="English", target_language="Japanese"
             )
-            payload = completion_payload(warmup, max_tokens=16)
+            payload = completion_payload(warmup, architecture=runtime.architecture, max_tokens=16)
             payload["stream"] = False
             with httpx.Client(trust_env=False, timeout=600) as client:
                 response = client.post(runtime.url + "/completion", json=payload)
                 response.raise_for_status()
             for repeat in range(args.repeats):
-                label = f"{Path(model).stem}-{repeat + 1}"
+                label = f"{stem}-{repeat + 1}"
                 result = asyncio.run(measure(runtime, request, reference, args.output, label))
                 results.append(result)
                 print(json.dumps(result, ensure_ascii=False), flush=True)
         finally:
             if runtime.log is not None:
                 runtime.log.seek(0)
-                (args.output / f"{Path(model).stem}.log").write_bytes(runtime.log.read())
+                (args.output / f"{stem}.log").write_bytes(runtime.log.read())
             runtime.close()
         (args.output / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
 

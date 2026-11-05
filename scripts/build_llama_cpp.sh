@@ -3,12 +3,12 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 llama_dir="${1:-$project_dir/.local/llama.cpp}"
-revision=db33d3cb89d8b0d954df66047b13e9cc22df8f10
+revision=8642541b255bfb5dc39cd351a178be09013a55d6
 patch_file="$project_dir/scripts/patches/llama-cpp-plamo2-rope.patch"
 
 if [[ ! -d "$llama_dir" ]]; then
     mkdir -p "$(dirname "$llama_dir")"
-    git clone --depth 1 --branch b11318 https://github.com/ggml-org/llama.cpp.git "$llama_dir"
+    git clone --depth 1 --branch b11960 https://github.com/ggml-org/llama.cpp.git "$llama_dir"
 fi
 if [[ "$(git -C "$llama_dir" rev-parse HEAD)" != "$revision" ]]; then
     echo "Expected llama.cpp $revision. Choose a new build directory; existing checkout was not changed." >&2

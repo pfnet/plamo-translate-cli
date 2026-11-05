@@ -71,9 +71,12 @@ def _opposite(text: str) -> str:
     return "en" if len(_JAPANESE.findall(text)) >= len(_ALPHABET.findall(text)) and _JAPANESE.search(text) else "ja"
 
 
-def pfml3_prompt(messages: list) -> str:
-    """Convert `input lang=X` / `output lang=Y` messages, ending with an empty output."""
-    parts = [f"{BOS}{TAG}dataset{MSG}translation"]
+def pfml3_prompt(messages: list, bos: bool = True) -> str:
+    """Convert `input lang=X` / `output lang=Y` messages, ending with an empty output.
+
+    Pass `bos=False` when the runtime adds BOS itself, as llama.cpp does.
+    """
+    parts = [f"{BOS if bos else ''}{TAG}dataset{MSG}translation"]
     source = None
     kind = None
     for message in messages:

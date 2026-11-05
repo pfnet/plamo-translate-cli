@@ -22,7 +22,7 @@ uv run --with sacrebleu python scripts/benchmark_llama_cpp.py \
   --repeats 2 --output .local/reproduce-llama
 ```
 
-モデル変換は [README](../../README.md#llamacpp-on-apple-silicon) の手順で再現できる。推奨GGUFはQ4_0量子化時に `--tensor-type ssm_out=f16` を指定して作成した。モデルサイズは5.81 GiB。
+モデル変換は [README](../../README.md#llamacpp-runtime-and-plamo-2-ggufs) の手順で再現できる。推奨GGUFはQ4_0量子化時に `--tensor-type ssm_out=f16` を指定して作成した。モデルサイズは5.81 GiB。
 
 ## 全文での比較
 

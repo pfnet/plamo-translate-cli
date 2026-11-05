@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 import os
+import platform
 import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -15,6 +18,8 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 
+from plamo_translate.servers.llama_cpp.model import SUPPORTED_ARCHITECTURES, gguf_architecture
+from plamo_translate.servers.mlx.pfml3 import pfml3_prompt
 from plamo_translate.servers.utils import (
     INSTRUCTION,
     PLAMO_MAX_TOKENS,
@@ -28,32 +33,61 @@ from plamo_translate.servers.utils import (
     find_free_port,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def find_llama_server(executable: str) -> str:
+    path = shutil.which(os.path.expanduser(executable))
+    if path is None:
+        raise ValueError("llama-server not found. Install llama.cpp or pass --llama-server /path/to/llama-server.")
+    return path
+
+
+def gguf_file(name: str, option: str) -> str:
+    # Not resolve(): Hugging Face cache entries are symlinks to blobs without the .gguf suffix.
+    path = Path(name).expanduser().absolute()
+    if not path.is_file() or path.suffix.lower() != ".gguf":
+        raise ValueError(f"{option} must be an existing GGUF file or a Hugging Face GGUF repository (see README).")
+    return str(path)
+
 
 @dataclass(frozen=True)
 class LlamaCppOptions:
     model: str
     executable: str = "llama-server"
+    # A smaller model with the same vocabulary proposes tokens that the main model verifies in one batch.
+    draft_model: str | None = None
     ctx_size: int = 32768
     batch_size: int = 2048
     ubatch_size: int = 512
-    threads: int = 8
+    # None: 2 with Metal offload, where more polling threads only slowed decoding, otherwise 8.
+    threads: int | None = None
     gpu_layers: int = 99
     flash_attn: str = "on"
     startup_timeout: float = 180
 
     def command(self, port: int) -> list[str]:
-        executable = shutil.which(os.path.expanduser(self.executable))
-        if executable is None:
-            raise ValueError(
-                "llama-server not found. Install/build llama.cpp or pass --llama-server /path/to/llama-server."
-            )
-        model = Path(self.model).expanduser().resolve()
-        if not model.is_file() or model.suffix.lower() != ".gguf":
-            raise ValueError(
-                "--model must be an existing GGUF file. Convert the Hugging Face directory first (see README)."
-            )
-        if min(self.ctx_size, self.batch_size, self.ubatch_size, self.threads, self.startup_timeout) <= 0:
+        executable = find_llama_server(self.executable)
+        model = gguf_file(self.model, "--model")
+        metal = sys.platform == "darwin" and platform.machine() == "arm64"
+        threads = self.threads or (2 if self.gpu_layers and metal else 8)
+        if min(self.ctx_size, self.batch_size, self.ubatch_size, threads, self.startup_timeout) <= 0:
             raise ValueError("Context, batch, microbatch, threads and startup timeout must be positive.")
+        speculation = []
+        if self.draft_model:
+            speculation = [
+                "--model-draft",
+                gguf_file(self.draft_model, "--draft-model"),
+                "--spec-type",
+                "draft-simple",
+                "--gpu-layers-draft",
+                str(self.gpu_layers),
+                # Fastest measured on M1 Max; drafting stops early when the draft is unsure.
+                "--spec-draft-n-max",
+                "6",
+                "--spec-draft-p-min",
+                "0.6",
+            ]
         return [
             executable,
             "--model",
@@ -69,7 +103,7 @@ class LlamaCppOptions:
             "--ubatch-size",
             str(self.ubatch_size),
             "--threads",
-            str(self.threads),
+            str(threads),
             "--n-gpu-layers",
             str(self.gpu_layers),
             "--flash-attn",
@@ -82,8 +116,24 @@ class LlamaCppOptions:
             "f16",
             "--no-context-shift",
             "--no-webui",
+            # Requests send PFML prompts to /completion and never use a chat template. The template that the
+            # b11960 converter embeds in PLaMo 3 GGUFs raises without a target language, and the server
+            # renders an example at startup, so replace it with a built-in one.
+            "--chat-template",
+            "chatml",
+            # -ngl is explicit, so fitting would only spend a second probing device memory.
+            "--fit",
+            "off",
+            # Requests set cache_prompt to false, so nothing is reused: skip saving slot states and SWA
+            # checkpoints for each one.
+            "--cache-ram",
+            "0",
+            "--ctx-checkpoints",
+            "0",
+            # The n_rot line checked by validate_model_log is logged at this verbosity.
             "--log-verbosity",
             "4",
+            *speculation,
         ]
 
 
@@ -95,8 +145,12 @@ class LlamaCppRuntime:
         self.process: subprocess.Popen | None = None
         self.log = None
         self.url = ""
+        self.architecture = ""
 
     def start(self) -> None:
+        self.architecture = gguf_architecture(self.options.model)
+        if self.architecture not in SUPPORTED_ARCHITECTURES:
+            raise RuntimeError(f"Unsupported GGUF architecture {self.architecture}; expected PLaMo 2 or PLaMo 3")
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -114,7 +168,7 @@ class LlamaCppRuntime:
                         if client.get(self.url + "/health").status_code == 200:
                             # Old PLaMo 2 loaders silently disable RoPE when layer 0 is Mamba.
                             log = os.pread(self.log.fileno(), 1024 * 1024, 0).decode("utf-8", errors="replace")
-                            validate_model_log(log)
+                            validate_model_log(log, draft=self.options.draft_model is not None)
                             return
                     except httpx.HTTPError:
                         pass
@@ -143,29 +197,43 @@ class LlamaCppRuntime:
             self.log = None
 
 
-def validate_model_log(log: str) -> None:
+def validate_model_log(log: str, draft: bool = False) -> None:
     if re.search(r"n_rot\s*=\s*0\b", log):
         raise RuntimeError("This llama.cpp build disables PLaMo 2 RoPE (n_rot = 0). Run scripts/build_llama_cpp.sh.")
+    if draft and "speculative decoding context initialized" not in log:
+        # llama-server keeps serving without the draft when it is incompatible, for example in vocabulary.
+        logger.warning("llama-server did not enable the draft model; decoding runs without speculation")
 
 
-def build_prompt(request: TranslateRequest) -> str:
+def build_prompt(request: TranslateRequest, *, architecture: str) -> str:
     messages = construct_llm_input(request.model_copy(deep=True))
     # llama.cpp adds BOS according to the GGUF tokenizer metadata, exactly once.
-    return "<|plamo:op|>dataset\ntranslation\n" + "\n".join("<|plamo:op|>" + m.content for m in messages)
+    if architecture == "plamo3":
+        return pfml3_prompt(messages, bos=False)
+    if architecture == "plamo2":
+        return "<|plamo:op|>dataset\ntranslation\n" + "\n".join("<|plamo:op|>" + m.content for m in messages)
+    raise ValueError(f"Unsupported GGUF architecture: {architecture}")
 
 
-def completion_payload(request: TranslateRequest, *, max_tokens: int = int(PLAMO_MAX_TOKENS)) -> dict:
+def completion_payload(
+    request: TranslateRequest, *, architecture: str, max_tokens: int = int(PLAMO_MAX_TOKENS)
+) -> dict:
+    temperature = float(PLAMO_TRANSLATE_CLI_TEMP)
     return {
-        "prompt": build_prompt(request),
+        "prompt": build_prompt(request, architecture=architecture),
         "stream": True,
         "n_predict": max_tokens,
-        "temperature": float(PLAMO_TRANSLATE_CLI_TEMP),
-        "top_p": float(PLAMO_TRANSLATE_CLI_TOP_P),
+        "temperature": temperature,
+        # Greedy decoding needs no nucleus filter, which would sort the 100k-token vocabulary on the CPU
+        # for every token. min_p is off, as in the MLX backend.
+        "top_p": float(PLAMO_TRANSLATE_CLI_TOP_P) if temperature > 0 else 1.0,
+        "min_p": 0.0,
         "top_k": int(PLAMO_TRANSLATE_CLI_TOP_K),
         "repeat_penalty": float(PLAMO_TRANSLATE_CLI_REPETITION_PENALTY or 1.0),
         "repeat_last_n": int(PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE or 0),
         "seed": 0,
-        "stop": ["<|plamo:op|>", "<|plamo:bos|>", "<|plamo:eos|>"],
+        # PLaMo 3 GGUFs end generation at their <|plamo:tag|>, <|plamo:bos|> and <|plamo:eos|> tokens.
+        "stop": ["<|plamo:op|>", "<|plamo:bos|>", "<|plamo:eos|>"] if architecture == "plamo2" else [],
         "cache_prompt": False,
     }
 
@@ -217,7 +285,8 @@ class PLaMoTranslateServer(FastMCP):
     async def translate(self, request: TranslateRequest, stream: bool, context: Context) -> str:
         async with self.lock, httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(600, connect=10)) as client:
             chunks = []
-            async for event in completion_events(client, self.runtime.url, completion_payload(request)):
+            payload = completion_payload(request, architecture=self.runtime.architecture)
+            async for event in completion_events(client, self.runtime.url, payload):
                 text = event.get("content", "")
                 if text:
                     chunks.append(text)
