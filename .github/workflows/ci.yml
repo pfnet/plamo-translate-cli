@@ -121,8 +121,7 @@ jobs:
     env:
       HF_HOME: ${{ github.workspace }}/.cache/hf
       HUGGINGFACE_HUB_CACHE: ${{ github.workspace }}/.cache/hf/hub
-      PLAMO_TRANSLATE_CLI_MODEL_NAME: mlx-community/plamo-2-translate
-      PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-2-translate
+      PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-3-translate-2b
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
       PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
@@ -143,7 +142,6 @@ jobs:
           key: ${{ runner.os }}-hf-${{ env.PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY }}-v1
           restore-keys: |
             ${{ runner.os }}-hf-${{ env.PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY }}-
-            ${{ runner.os }}-hf-
       - name: Install wheel and test runner
         run: |
           python -m venv "$RUNNER_TEMP/wheel-venv"
