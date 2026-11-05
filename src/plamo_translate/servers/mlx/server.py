@@ -13,6 +13,8 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
 
 from plamo_translate.servers.mlx.loader import load_translation_model
+from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
+from plamo_translate.servers.mlx.plamo3_runtime import Plamo3Translator
 
 from plamo_translate.servers.utils import (
     INSTRUCTION,
@@ -81,6 +83,10 @@ class PLaMoTranslateServer(FastMCP):
         else:
             disable_progress_bars()
         precision = os.getenv("PLAMO_TRANSLATE_CLI_PRECISION")
+        if is_plamo3_checkpoint(model_name):
+            translator = Plamo3Translator(model_name, precision)
+            update_config(model_name=model_name, precision=translator.precision)
+            return translator, translator.tokenizer, *self._sampling()
         model, tokenizer, config = load_translation_model(
             model_name,
             precision,
@@ -90,7 +96,9 @@ class PLaMoTranslateServer(FastMCP):
         if actual_precision is None:
             actual_precision = f"{config['quantization']['bits']}bit" if config.get("quantization") else "bf16"
         update_config(model_name=model_name, precision=actual_precision)
+        return model, tokenizer, *self._sampling()
 
+    def _sampling(self) -> Tuple[Callable[..., mx.array], list]:
         sampler = make_sampler(
             temp=float(PLAMO_TRANSLATE_CLI_TEMP),
             top_p=float(PLAMO_TRANSLATE_CLI_TOP_P),
@@ -110,7 +118,7 @@ class PLaMoTranslateServer(FastMCP):
             ),
         )
 
-        return model, tokenizer, sampler, logits_processors
+        return sampler, logits_processors
 
     async def translate(self, request: TranslateRequest, stream: bool, context: Context) -> str:
         """Run the translation tool"""
@@ -121,21 +129,35 @@ class PLaMoTranslateServer(FastMCP):
         logger.info(f"Received translation request: {context.request_id}")
         try:
             messages = construct_llm_input(request)
-            prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=False)  # type:ignore[call-arg]
+            prefill_step = int(os.getenv("PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE", "512"))
+            if isinstance(self.model, Plamo3Translator):
+                greedy = float(PLAMO_TRANSLATE_CLI_TEMP) == 0 and not self.logits_processors
+                segments = self.model.stream(
+                    messages,
+                    int(PLAMO_MAX_TOKENS),
+                    prefill_step,
+                    sampler=None if greedy else self.sampler,
+                    logits_processors=self.logits_processors,
+                )
+            else:
+                prompt = self.tokenizer.apply_chat_template(  # type:ignore[call-arg]
+                    messages, add_generation_prompt=False
+                )
+                segments = stream_generate(
+                    model=self.model,
+                    tokenizer=self.tokenizer,
+                    prompt=prompt,
+                    sampler=self.sampler,
+                    logits_processors=self.logits_processors,
+                    max_tokens=int(PLAMO_MAX_TOKENS),
+                    prefill_step_size=prefill_step,
+                )
 
             # Generate translation
             translation = ""
             segments_count = 0
 
-            for segment in stream_generate(
-                model=self.model,
-                tokenizer=self.tokenizer,
-                prompt=prompt,
-                sampler=self.sampler,
-                logits_processors=self.logits_processors,
-                max_tokens=int(PLAMO_MAX_TOKENS),
-                prefill_step_size=int(os.getenv("PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE", "512")),
-            ):
+            for segment in segments:
                 translation += segment.text
                 segments_count += 1
 

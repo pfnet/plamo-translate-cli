@@ -367,6 +367,24 @@ paths and supplied translation text are excluded from the model repository.
 - mlx: Optimized for macOS with Apple Silicon (default on macOS)
 - llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool
 
+### PLaMo 3 checkpoints on Apple Silicon
+
+Pass the Hugging Face repository of an original PLaMo 3 translation checkpoint, or a local directory holding one. On first use the original weights are downloaded into the Hugging Face cache; they are converted and quantized each time they are loaded. The checkpoint type is read from its `config.json`:
+
+```sh
+plamo-translate --model pfnet/plamo-3-translate-2b --from English --to Japanese --input "Hello"
+```
+
+Already quantized checkpoints such as the MLX-4bit release are rejected before their weights are downloaded.
+
+`--precision 4bit` (default) and `bf16` run on fused Metal kernels; `bf16` computes in FP16, which keeps more mantissa bits than BF16. Other precisions use plain MLX ops. On startup one decoded step is compared with plain MLX ops, and the server falls back to them with a warning if the kernels disagree. With `English|Japanese` the direction is chosen from the source text, since PLaMo 3 needs an explicit target language.
+
+Measurements and limitations are in the [benchmark summary](benchmarks/plamo3_mlx_20261104/README.md). Reproduce them with:
+
+```sh
+uv run python scripts/benchmark_plamo3.py --model pfnet/plamo-3-translate-2b --output .local/benchmarks/plamo3-4bit
+```
+
 ### llama.cpp on Apple Silicon
 
 Build the tested runtime from this checkout (requires Git, CMake and Xcode Command Line Tools):

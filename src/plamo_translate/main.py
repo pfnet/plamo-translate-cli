@@ -16,6 +16,7 @@ from typing import Dict, List
 
 from plamo_translate import __version__
 from plamo_translate.clients import translate
+from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
 from plamo_translate.servers.utils import (
     PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE,
     PLAMO_TRANSLATE_CLI_REPETITION_PENALTY,
@@ -41,6 +42,10 @@ def start_mcp_server(backend_type: str, log_level: str, show_progress: bool = Fa
         except Exception as e:
             print(f"Error during server running: {e}")
     elif backend_type == "mlx":
+        if is_plamo3_checkpoint(os.environ.get("PLAMO_TRANSLATE_CLI_MODEL_NAME")):
+            # MLX reads these on import. Every matrix would otherwise end a command buffer.
+            os.environ.setdefault("MLX_MAX_OPS_PER_BUFFER", "4096")
+            os.environ.setdefault("MLX_MAX_MB_PER_BUFFER", "1000000")
         from plamo_translate.servers.mlx import server as mlx_server
 
         server = mlx_server.PLaMoTranslateServer(log_level=log_level, show_progress=show_progress)
