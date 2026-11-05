@@ -18,6 +18,7 @@ from plamo_translate import __version__
 from plamo_translate.clients import translate
 from plamo_translate.servers.mlx.pfml3 import is_plamo3_checkpoint
 from plamo_translate.servers.utils import (
+    DEFAULT_MODEL_NAME,
     PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE,
     PLAMO_TRANSLATE_CLI_REPETITION_PENALTY,
     SUPPORTED_LANGUAGES,
@@ -251,7 +252,10 @@ def main() -> None:
         choices=["4bit", "6bit", "8bit", "mixed", "bf16"],
         help="MLX precision (default: 4bit for original weights; preserve exported checkpoints)",
     )
-    global_parser.add_argument("--model", help="Local GGUF for llama.cpp, or MLX model path/repository")
+    global_parser.add_argument(
+        "--model",
+        help=f"Local GGUF for llama.cpp, or MLX model path/repository (MLX default: {DEFAULT_MODEL_NAME})",
+    )
     global_parser.add_argument(
         "--llama-server",
         default=os.environ.get("PLAMO_TRANSLATE_CLI_LLAMA_SERVER", "llama-server"),
@@ -322,13 +326,7 @@ def main() -> None:
     if model_name is None and running and precision is None:
         model_name = config.get("model_name")
     if model_name is None and args.backend_type == "mlx":
-        model_name = {
-            "4bit": "mlx-community/plamo-2-translate",
-            "8bit": "mlx-community/plamo-2-translate-8bit",
-            "bf16": "mlx-community/plamo-2-translate-bf16",
-            "6bit": "pfnet/plamo-2-translate",
-            "mixed": "pfnet/plamo-2-translate",
-        }[precision or "4bit"]
+        model_name = DEFAULT_MODEL_NAME
     if args.command != "show-claude-config" and model_name is None:
         parser.error("llama.cpp requires --model /path/to/model.gguf (or PLAMO_TRANSLATE_CLI_MODEL_NAME).")
     if args.backend_type == "llama.cpp" and model_name:
@@ -338,7 +336,10 @@ def main() -> None:
         if config.get("backend_type") == "llama.cpp" and existing_model:
             existing_model = str(Path(existing_model).expanduser().resolve())
         if config.get("backend_type", "mlx") != args.backend_type or existing_model != model_name:
-            parser.error("A different backend/model is already running. Stop it first, or use a separate TMPDIR.")
+            parser.error(
+                f"A different backend/model is already running ({config.get('backend_type', 'mlx')}: {existing_model}; "
+                f"requested {args.backend_type}: {model_name}). Stop it first, or use a separate TMPDIR."
+            )
         if args.backend_type == "mlx" and precision is not None and config.get("precision") != precision:
             parser.error("A server with different precision is running; stop it before changing --precision.")
     if args.backend_type == "mlx" and precision is not None:

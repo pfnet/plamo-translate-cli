@@ -1,12 +1,13 @@
 # plamo-translate-cli
 
-A command-line interface for local translation powered by plamo-2-translate, a PFN™ translation model
+A command-line interface for local translation powered by plamo-3-translate-2b, a PFN™ translation model
 
 ## Features
 
 - Translate text between 16+ languages including Japanese, English, Chinese, Korean, and more
 - Simple command-line interface for easy integration into scripts and workflows
 - MLX and native llama.cpp backends, including Metal acceleration on Apple Silicon
+- PLaMo 3 Translate 2B by default; PLaMo 2 Translate remains available with `--model`
 
 ## Installation
 
@@ -45,6 +46,22 @@ source .venv/bin/activate
 
 ## Usage
 
+### Model
+
+Without `--model`, the MLX backend translates with
+[`pfnet/plamo-3-translate-2b`](https://huggingface.co/pfnet/plamo-3-translate-2b).
+The first run downloads its original weights (5.76 GB) into the Hugging Face cache, and each
+load quantizes them to 4bit or to the precision given with `--precision`; `bf16` skips quantization
+and computes in FP16. The model is distributed under the
+[PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-en).
+
+PLaMo 2 remains available. Pass its repository with `--model`, or set
+`PLAMO_TRANSLATE_CLI_MODEL_NAME` to use it for every run:
+
+```sh
+plamo-translate --model mlx-community/plamo-2-translate
+```
+
 ### Basic usage
 
 You can specify the input and output language by giving `--from` and `--to` options.
@@ -59,9 +76,9 @@ Interactive mode enabled. Type your input below (Ctrl+D to exit).
 > こんにちは、お元気ですか？
 Hello, how are you?
 > 「お腹減った〜何食べたい？」「私はうなぎ！」
-"I'm hungry! What do you want to eat?" "I want eel!"
+"I'm hungry~ What do you want to eat?" "I want eel!"
 > You translate ambiguous expression in Japanese into English very well.
-あなたは日本語の曖昧な表現を英語に翻訳するのがとても上手です。
+日本語の曖昧な表現を英語にうまく訳していますね。
 ```
 
 #### Pipe mode
@@ -87,7 +104,7 @@ Then, use the client mode:
 
 ```sh
 $ plamo-translate --input '家計は火の車だ'
-Our household is in financial trouble.
+The household finances are in dire straits.
 ```
 
 You can also use the interactive mode with the server:
@@ -97,7 +114,7 @@ $ plamo-translate
 Loading models...done!
 Interactive mode enabled. Type your input below (Ctrl+D to exit).
 > 家計は火の車だ
-Our household is in financial trouble.
+The household finances are in dire straits.
 ```
 
 It can skip the loading time of the model, so it is useful when you want to use this tool frequently.
@@ -149,6 +166,14 @@ You can specify the precision of the model weight by giving a `--precision` opti
 ```sh
 $ plamo-translate server --precision 8bit
 ```
+
+The default PLaMo 3 model converts its original weights to the requested precision on every load;
+`bf16` keeps them unquantized and computes in FP16.
+
+### PLaMo 2 checkpoints on MLX
+
+This section and its benchmarks cover PLaMo 2. For the default model, see
+[PLaMo 3 checkpoints on Apple Silicon](#plamo-3-checkpoints-on-apple-silicon).
 
 #### Use original local weights with the optimized MLX backend
 
@@ -288,9 +313,10 @@ omits “Together with You” in the title. All published files match the valida
 local bytes. A summary of the measurements and publication checks is in
 [`benchmarks/releases/2026-10-07`](benchmarks/releases/2026-10-07).
 
-`--precision 8bit` selects `mlx-community/plamo-2-translate-8bit` and
-`--precision bf16` selects `mlx-community/plamo-2-translate-bf16` unless a model
-path or repository was explicitly provided. The exporter supports both precisions:
+Select them with `--model mlx-community/plamo-2-translate-8bit` or
+`--model mlx-community/plamo-2-translate-bf16`. Without `--model` or
+`PLAMO_TRANSLATE_CLI_MODEL_NAME`, `--precision` applies to the default PLaMo 3 model.
+The exporter supports both precisions:
 
 ```sh
 uv run python scripts/prepare_mlx_model.py \
@@ -342,6 +368,10 @@ paths and supplied translation text are excluded from the model repository.
 
 ## Supported Languages
 
+The CLI accepts the languages below. The PLaMo 3 Translate model card lists all of them among its
+53 languages except `Japanese(easy)`, which the CLI passes to PLaMo 3 as `ja(easy)`. The supported
+and experimental groups below describe PLaMo 2.
+
 - Japanese
 - Japanese(easy)
 - English
@@ -369,10 +399,11 @@ paths and supplied translation text are excluded from the model repository.
 
 ### PLaMo 3 checkpoints on Apple Silicon
 
-Pass the Hugging Face repository of an original PLaMo 3 translation checkpoint, or a local directory holding one. On first use the original weights are downloaded into the Hugging Face cache; they are converted and quantized each time they are loaded. The checkpoint type is read from its `config.json`:
+`pfnet/plamo-3-translate-2b` is the default model. `--model` also accepts the Hugging Face repository of another original PLaMo 3 translation checkpoint, or a local directory holding one. On first use the original weights are downloaded into the Hugging Face cache; they are converted and quantized each time they are loaded. The checkpoint type is read from its `config.json`:
 
 ```sh
-plamo-translate --model pfnet/plamo-3-translate-2b --from English --to Japanese --input "Hello"
+plamo-translate --from English --to Japanese --input "Hello"
+plamo-translate --model /path/to/plamo-3-translate-checkpoint --from English --to Japanese --input "Hello"
 ```
 
 Already quantized checkpoints such as the MLX-4bit release are rejected before their weights are downloaded.
@@ -476,7 +507,7 @@ content and do not interpret it as general translation accuracy.
 - --input TEXT Input text to translate
 - --from TEXT Input language for translation (default: English)
 - --to TEXT Output language for translation (default: Japanese)
-- --model Local model directory or Hugging Face repository
+- --model Local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b)
 - --precision Model weight precision: [4bit, 6bit, 8bit, mixed, bf16] (default: 4bit for original weights)
 
 ## Configuration
@@ -487,7 +518,7 @@ You can configure the following parameters using environment variables:
 - `PLAMO_TRANSLATE_CLI_SERVER_END_PORT`: Specifies the ending port number for the server.
 - `PLAMO_TRANSLATE_CLI_MODEL_NAME`: Local model directory or Hugging Face repository.
 - `PLAMO_TRANSLATE_CLI_PRECISION`: Explicit weight precision, equivalent to `--precision`.
-- `PLAMO_TRANSLATE_CLI_OPTIMIZE`: Set to `1` to opt in to the experimental decode convolution (default: `0`; correctness fixes are always enabled).
+- `PLAMO_TRANSLATE_CLI_OPTIMIZE`: PLaMo 2 only. Set to `1` to opt in to the experimental decode convolution (default: `0`; correctness fixes are always enabled).
 - `PLAMO_TRANSLATE_CLI_PREFILL_STEP_SIZE`: Prompt chunk size (default: 512).
 - `PLAMO_MAX_TOKENS`: Maximum generated tokens (default: 32768). Reaching this limit reports an incomplete translation error.
 - `PLAMO_TRANSLATE_CLI_TEMP`: Sets the temperature for text generation.
