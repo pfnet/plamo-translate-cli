@@ -81,7 +81,18 @@ class Plamo3Translator:
         self.path = checkpoint_path(path)
         self.precision = precision or "4bit"
         # FP16 keeps more mantissa bits than BF16; activations stayed far below its range on real text.
-        self.model, self.config = load_model(self.path, mx.float16, lambda model: quantize(model, self.precision))
+        self.model, self.config = load_model(self.path, mx.float16, lazy=True)
+        quantize(self.model, self.precision)
+        # Convert and quantize one layer at a time, returning freed buffers: in a single evaluation the 4bit load
+        # peaked at 7.2 GB and left 5.3 GB cached, too much for 8 GB Macs.
+        for layer in self.model.model.layers.layers:
+            mx.eval(layer.parameters())
+            mx.clear_cache()
+        # The embedding and lm_head are the largest tensors: converting both in one evaluation made a command buffer
+        # over five times a layer's, and on CI runners short of memory Metal aborted it (GPU Timeout Error).
+        for module in (self.model.model.embed_tokens, self.model.lm_head, self.model):
+            mx.eval(module.parameters())
+            mx.clear_cache()
         with suppress_optional_gpu_dependency_warnings():
             self.tokenizer = load_tokenizer(
                 self.path,

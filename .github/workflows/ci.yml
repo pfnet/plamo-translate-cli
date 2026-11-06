@@ -163,27 +163,33 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
-      - name: DEBUG full loads under incompressible memory pressure
+      - name: DEBUG install main for comparison
+        if: always()
+        run: |
+          git fetch --depth=1 origin main
+          git worktree add "$RUNNER_TEMP/main-src" FETCH_HEAD
+          python -m venv "$RUNNER_TEMP/main-venv"
+          "$RUNNER_TEMP/main-venv/bin/python" -m pip --isolated install -q "$RUNNER_TEMP/main-src" pytest
+          grep -n "mx.eval(self.model.parameters())" "$RUNNER_TEMP/main-venv/lib/python3.13/site-packages/plamo_translate/servers/mlx/plamo3_runtime.py"
+          grep -n "embed_tokens, self.model.lm_head" "$RUNNER_TEMP/wheel-venv/lib/python3.13/site-packages/plamo_translate/servers/mlx/plamo3_runtime.py"
+      - name: DEBUG alternate main and the fix in the CLI integration tests
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          python -c "import numpy as np, time; a = np.random.default_rng(0).integers(0, 2**62, size=int(4e9) // 8, dtype=np.int64); time.sleep(900)" &
-          hog_pid=$!
-          sleep 20
-          vm_stat | grep -E "free|compressor|Swapouts"
-          python "$GITHUB_WORKSPACE/.github/debug/stress_load3.py" 4
-          kill $hog_pid || true
-      - name: DEBUG repeat the CLI integration tests
-        if: always()
-        working-directory: ${{ runner.temp }}
-        run: |
-          failures=0
-          for i in 1 2 3; do
-            echo "=== repetition $i $(date -u +%T)"
-            python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py 2>&1 | tail -150 || true
-            if [ "${PIPESTATUS[0]}" != 0 ]; then failures=$((failures + 1)); fi
+          declare -A failed=([main]=0 [fix]=0)
+          for i in 1 2 3 4 5 6 7 8; do
+            for variant in main fix; do
+              if [ $variant = main ]; then venv="$RUNNER_TEMP/main-venv"; else venv="$RUNNER_TEMP/wheel-venv"; fi
+              echo "=== repetition $i $variant $(date -u +%T)"
+              PATH="$venv/bin:$PATH" "$venv/bin/python" -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py > "run.log" 2>&1 || true
+              tail -1 run.log
+              count=$(grep -c "^FAILED" run.log || true)
+              failed[$variant]=$((failed[$variant] + count))
+              grep -E "^E +(RuntimeError|AssertionError: (The server|Timed out))" run.log | head -3 || true
+              grep -E "^E +File .*plamo3_runtime.py" run.log | tail -1 || true
+            done
           done
-          echo "failed repetitions: $failures"
+          echo "FAILED TESTS main=${failed[main]} fix=${failed[fix]} (16 server starts each)"
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |

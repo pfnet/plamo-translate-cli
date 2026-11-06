@@ -7,14 +7,12 @@ query/key distance, so each key needs rotating once, when it enters the cache.
 
 import json
 import math
-from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
-from mlx.utils import tree_flatten
 
 POST_MIXER_OFFSET = 1.0 / 5
 POST_MLP_OFFSET = 1.0 / (5**1.5)
@@ -273,10 +271,7 @@ def load_config(path: Path) -> dict:
     return json.loads((path / "config.json").read_text())
 
 
-def load_model(
-    path: str | Path, dtype: mx.Dtype = mx.float16, transform: Callable[[Model], None] | None = None
-) -> tuple[Model, dict]:
-    """Load a checkpoint one parameter at a time, converting it to dtype after transform (such as quantization)."""
+def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = False) -> tuple[Model, dict]:
     path = Path(path)
     config = load_config(path)
     if config.get("model_type") != "plamo3":
@@ -289,17 +284,7 @@ def load_model(
     weights = {}
     for shard in sorted(path.glob("model*.safetensors")):
         weights.update(mx.load(str(shard)))
-    # Cast on the CPU: it gives the same values and leaves the GPU only quantization.
-    model.load_weights([(name, array.astype(dtype, stream=mx.cpu)) for name, array in weights.items()])
-    del weights
-    if transform is not None:
-        transform(model)
-    # Give each parameter its own command buffer: every evaluation ends one. The CLI lets command buffers grow without
-    # limit, which speeds up decoding, and on CI runners short of memory Metal aborted the long ones loading used to
-    # build (GPU Timeout Error). Freeing memory after each layer keeps the 4bit load at 2.6 GB rather than 7.2 GB.
-    for module in [*model.model.layers.layers, model]:
-        for _, parameter in tree_flatten(module.parameters()):
-            mx.async_eval(parameter)
-        mx.eval(module.parameters())
-        mx.clear_cache()
+    model.load_weights([(name, array.astype(dtype)) for name, array in weights.items()])
+    if not lazy:
+        mx.eval(model.parameters())
     return model, config
