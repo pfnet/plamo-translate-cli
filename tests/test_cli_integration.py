@@ -1,7 +1,9 @@
 import os
+import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -21,17 +23,35 @@ def integration_test_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
 
 
-def wait_for_server_ready(timeout: int = SERVER_STARTUP_TIMEOUT_SECONDS) -> None:
+def start_server(log_path: Path, *arguments: str) -> subprocess.Popen:
+    """Write the server's output to a file: an unread pipe would block the server once it fills."""
+    with open(log_path, "w") as log:
+        return subprocess.Popen(
+            ["plamo-translate", "server", *arguments],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            # A timed-out server is aborted below; this makes it print where each thread was.
+            env={**os.environ, "PYTHONFAULTHANDLER": "1"},
+        )
+
+
+def wait_for_server_ready(
+    process: subprocess.Popen, log_path: Path, timeout: int = SERVER_STARTUP_TIMEOUT_SECONDS
+) -> None:
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if check_server_running():
-            return
+    while not check_server_running():
+        assert process.poll() is None, f"The server exited with {process.returncode}:\n{log_path.read_text()}"
+        if time.monotonic() >= deadline:
+            process.send_signal(signal.SIGABRT)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+            raise AssertionError(f"Timed out waiting for the MCP server to become ready:\n{log_path.read_text()}")
         time.sleep(0.5)
 
-    raise AssertionError("Timed out waiting for the MCP server to become ready.")
 
-
-def stop_subprocess(process: subprocess.Popen[str] | None) -> None:
+def stop_subprocess(process: subprocess.Popen | None) -> None:
     if process is None:
         return
 
@@ -43,17 +63,13 @@ def stop_subprocess(process: subprocess.Popen[str] | None) -> None:
         process.wait(timeout=5)
 
 
-def test_plamo_translate_server_roundtrip_with_real_model(monkeypatch):
+def test_plamo_translate_server_roundtrip_with_real_model(monkeypatch, tmp_path):
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_MODEL_NAME", raising=False)
+    log_path = tmp_path / "server.log"
     server_process = None
     try:
-        server_process = subprocess.Popen(
-            ["plamo-translate", "server"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        wait_for_server_ready()
+        server_process = start_server(log_path)
+        wait_for_server_ready(server_process, log_path)
 
         config = update_config()
         assert config.get("port") == PLAMO_TRANSLATE_CLI_SERVER_START_PORT
@@ -91,15 +107,11 @@ def test_plamo_translate_4bit_completions_issue_10(monkeypatch, tmp_path):
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_REPETITION_PENALTY", raising=False)
     monkeypatch.delenv("PLAMO_TRANSLATE_CLI_REPETITION_CONTEXT_SIZE", raising=False)
 
+    log_path = tmp_path / "server.log"
     server_process = None
     try:
-        server_process = subprocess.Popen(
-            ["plamo-translate", "server", "--precision", "4bit"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        wait_for_server_ready()
+        server_process = start_server(log_path, "--precision", "4bit")
+        wait_for_server_ready(server_process, log_path)
         assert update_config().get("model_name") == model_name
 
         result = subprocess.run(
