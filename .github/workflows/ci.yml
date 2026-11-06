@@ -163,24 +163,16 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
-      - name: DEBUG last load step under memory pressure
+      - name: DEBUG full loads under incompressible memory pressure
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          hog=$(python -c "print([5, 5.5, 6, 5][${{ matrix.job }} - 1])")
-          echo "holding ${hog} GB"
-          python -c "import numpy as np, time; a = np.ones(int(${hog} * 1e9) // 8); time.sleep(1500)" &
-          hog_pid=$!
-          sleep 5
-          python "$GITHUB_WORKSPACE/.github/debug/stress_final.py" final 12
-          kill $hog_pid || true
-      - name: DEBUG whole model in one evaluation, large and default command buffers
-        if: always()
-        working-directory: ${{ runner.temp }}
-        run: |
-          python -c "import numpy as np, time; a = np.ones(int(5 * 1e9) // 8); time.sleep(1500)" &
-          sleep 5
-          python "$GITHUB_WORKSPACE/.github/debug/stress_final.py" whole 4
+          hog=$(python -c "print([2.5, 3, 3.5, 4][${{ matrix.job }} - 1])")
+          echo "holding ${hog} GB of random data"
+          python -c "import numpy as np, time; a = np.random.default_rng(0).integers(0, 2**62, size=int(${hog} * 1e9) // 8, dtype=np.int64); time.sleep(3000)" &
+          sleep 20
+          vm_stat | grep -E "free|compressor|Swapouts"
+          python "$GITHUB_WORKSPACE/.github/debug/stress_load3.py" 4
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |
