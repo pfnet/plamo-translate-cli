@@ -115,7 +115,7 @@ jobs:
 
   mlx-integration-test:
     needs: build-wheel
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/mlx-integration-server-startup')
     runs-on: macos-latest
     timeout-minutes: 45
     env:
@@ -124,7 +124,7 @@ jobs:
       PLAMO_TRANSLATE_CLI_MODEL_CACHE_KEY: plamo-3-translate-2b
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
-      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
+      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '300'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.13
@@ -152,9 +152,24 @@ jobs:
           "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install "$GITHUB_WORKSPACE"/dist/*.whl
           "$RUNNER_TEMP/wheel-venv/bin/python" -m pip check
           "$RUNNER_TEMP/wheel-venv/bin/python" -m pip --isolated install pytest
+      - name: DEBUG record memory
+        run: |
+          sysctl hw.memsize hw.ncpu machdep.cpu.brand_string
+          nohup bash -c 'while true; do date -u +%T; vm_stat | grep -E "free|active|wired|compressor|Swap"; sysctl -n vm.swapusage; ps -axo pid,ppid,rss,stat,etime,command | grep -iE "plamo|pytest" | grep -v grep | cut -c1-200; sleep 15; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
+      - name: DEBUG 4bit server test alone
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest -s wheel-tests/test_cli_integration.py -k issue_10
+      - name: DEBUG CLI integration tests without the backend tests
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest -s wheel-tests/test_cli_integration.py
+      - name: DEBUG memory log
+        if: always()
+        run: cat "$RUNNER_TEMP/memory.log"
 
   llama-cpp-integration-test:
     needs: build-wheel
@@ -168,7 +183,7 @@ jobs:
     env:
       PLAMO_TRANSLATE_CLI_USE_MOCK_SERVER: '0'
       PLAMO_TRANSLATE_CLI_TEST_TIMEOUT_SECONDS: '900'
-      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '900'
+      PLAMO_TRANSLATE_CLI_TEST_SERVER_STARTUP_TIMEOUT_SECONDS: '300'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.13
