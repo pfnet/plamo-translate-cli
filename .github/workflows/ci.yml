@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        job: [1, 2]
+        job: [1]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/mlx-integration-server-startup')
     runs-on: macos-latest
     timeout-minutes: 45
@@ -167,11 +167,11 @@ jobs:
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          for steps in 5 20 60 150; do
+          for steps in 450 1200; do
             python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" together $steps 2>&1 | tail -1
           done
-          python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" cpu-first 150 2>&1 | tail -1
-          MLX_MAX_OPS_PER_BUFFER=4096 MLX_MAX_MB_PER_BUFFER=1000000 python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" together 150 2>&1 | tail -1
+          MLX_MAX_OPS_PER_BUFFER=4096 MLX_MAX_MB_PER_BUFFER=1000000 python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" together 1200 2>&1 | tail -1
+          python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" cpu-first 1200 2>&1 | tail -1
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |
