@@ -172,23 +172,14 @@ jobs:
           "$RUNNER_TEMP/main-venv/bin/python" -m pip --isolated install -q "$RUNNER_TEMP/main-src" pytest
           grep -n "mx.eval(self.model.parameters())" "$RUNNER_TEMP/main-venv/lib/python3.13/site-packages/plamo_translate/servers/mlx/plamo3_runtime.py"
           grep -n "embed_tokens, self.model.lm_head" "$RUNNER_TEMP/wheel-venv/lib/python3.13/site-packages/plamo_translate/servers/mlx/plamo3_runtime.py"
-      - name: DEBUG alternate main and the fix in the CLI integration tests
+      - name: DEBUG main and the fix under incompressible memory pressure
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          main_failed=0
-          fix_failed=0
-          for i in 1 2 3 4 5 6 7 8; do
-            for variant in main fix; do
-              if [ $variant = main ]; then venv="$RUNNER_TEMP/main-venv"; else venv="$RUNNER_TEMP/wheel-venv"; fi
-              PATH="$venv/bin:$PATH" "$venv/bin/python" -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py > run.log 2>&1 || true
-              count=$(grep -c "^FAILED" run.log || true)
-              echo "RESULT repetition $i $variant failed=$count $(tail -1 run.log)"
-              grep -E "^E +RuntimeError|^E +AssertionError: (The server|Timed out)|^E +File .*plamo3_runtime.py" run.log | head -4 || true
-              if [ $variant = main ]; then main_failed=$((main_failed + count)); else fix_failed=$((fix_failed + count)); fi
-            done
-          done
-          echo "TOTAL FAILED TESTS main=$main_failed fix=$fix_failed (16 server starts each)"
+          python -c "import numpy as np, time; a = np.random.default_rng(0).integers(0, 2**62, size=int(4e9) // 8, dtype=np.int64); time.sleep(1800)" &
+          sleep 20
+          vm_stat | grep -E "free|compressor|Swapouts"
+          python "$GITHUB_WORKSPACE/.github/debug/stress_load4.py" "$RUNNER_TEMP/main-venv/bin/python" "$RUNNER_TEMP/wheel-venv/bin/python" 6
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |
