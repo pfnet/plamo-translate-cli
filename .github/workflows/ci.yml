@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        job: [1, 2, 3, 4, 5]
+        job: [1, 2]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/mlx-integration-server-startup')
     runs-on: macos-latest
     timeout-minutes: 45
@@ -163,15 +163,15 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
-      - name: DEBUG load from a cold page cache under memory pressure
+      - name: DEBUG GPU waiting on slow CPU work inside one evaluation
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          hog=$(python -c "print([0, 1, 2, 2.5, 3][${{ matrix.job }} - 1])")
-          echo "holding ${hog} GB"
-          python -c "import numpy as np, time; a = np.ones(int(${hog} * 1e9) // 8); time.sleep(3600)" &
-          sleep 5
-          python "$GITHUB_WORKSPACE/.github/debug/stress_load.py" 4
+          for steps in 5 20 60 150; do
+            python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" together $steps 2>&1 | tail -1
+          done
+          python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" cpu-first 150 2>&1 | tail -1
+          MLX_MAX_OPS_PER_BUFFER=4096 MLX_MAX_MB_PER_BUFFER=1000000 python "$GITHUB_WORKSPACE/.github/debug/fence_wait.py" together 150 2>&1 | tail -1
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |
