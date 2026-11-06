@@ -115,6 +115,10 @@ jobs:
 
   mlx-integration-test:
     needs: build-wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2, 3, 4, 5]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/mlx-integration-server-startup')
     runs-on: macos-latest
     timeout-minutes: 45
@@ -155,21 +159,28 @@ jobs:
       - name: DEBUG record memory
         run: |
           sysctl hw.memsize hw.ncpu machdep.cpu.brand_string
-          nohup bash -c 'while true; do date -u +%T; vm_stat | grep -E "free|active|wired|compressor|Swap"; sysctl -n vm.swapusage; ps -axo pid,ppid,rss,stat,etime,command | grep -iE "plamo|pytest" | grep -v grep | cut -c1-200; sleep 15; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
+          nohup bash -c 'while true; do date -u +%T; vm_stat | grep -E "free|compressor|Swapouts"; ps -axo pid,ppid,rss,stat,etime,command | grep -iE "plamo-translate|pytest" | grep -v grep | cut -c1-160; sleep 10; done' > "$RUNNER_TEMP/memory.log" 2>&1 &
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
-      - name: DEBUG 4bit server test alone
+      - name: DEBUG repeat the CLI integration tests
         if: always()
         working-directory: ${{ runner.temp }}
-        run: python -I -m pytest -s wheel-tests/test_cli_integration.py -k issue_10
-      - name: DEBUG CLI integration tests without the backend tests
+        run: |
+          failures=0
+          for i in 1 2 3 4; do
+            echo "=== repetition $i $(date -u +%T)"
+            python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py 2>&1 | tail -150 || true
+            if [ "${PIPESTATUS[0]}" != 0 ]; then failures=$((failures + 1)); fi
+          done
+          echo "failed repetitions: $failures"
+      - name: DEBUG server logs, crash reports and memory kills
         if: always()
-        working-directory: ${{ runner.temp }}
-        run: python -I -m pytest -s wheel-tests/test_cli_integration.py
-      - name: DEBUG memory log
-        if: always()
-        run: cat "$RUNNER_TEMP/memory.log"
+        run: |
+          find /private/var/folders -path "*pytest-of-runner*" -name server.log -exec wc -c {} + 2>/dev/null | tail -40
+          ls -la ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | tail -20
+          log show --last 60m --style compact --predicate 'eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "kill" AND process == "kernel"' 2>/dev/null | grep -iE "python|jetsam|memorystatus" | tail -40
+          cat "$RUNNER_TEMP/memory.log" | tail -400
 
   llama-cpp-integration-test:
     needs: build-wheel
