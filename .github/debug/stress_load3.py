@@ -54,7 +54,8 @@ for round_ in range(rounds):
         if result.returncode == 0:
             outcome = "ok"
         elif "Timeout" in result.stderr:
-            outcome = "GPU timeout" + (f" at {stages[-1][6:]}" if stages else "")
+            where = [line.strip() for line in result.stderr.splitlines() if "File " in line][-1:]
+            outcome = "GPU timeout" + (f" at {stages[-1][6:]}" if stages else "") + f" {where}"
         else:
             outcome = f"error {result.returncode}: {result.stderr.strip().splitlines()[-1:]}"
         results[name].append(outcome)

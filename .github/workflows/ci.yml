@@ -163,12 +163,22 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
+      - name: DEBUG full loads under incompressible memory pressure
+        if: always()
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -c "import numpy as np, time; a = np.random.default_rng(0).integers(0, 2**62, size=int(4e9) // 8, dtype=np.int64); time.sleep(900)" &
+          hog_pid=$!
+          sleep 20
+          vm_stat | grep -E "free|compressor|Swapouts"
+          python "$GITHUB_WORKSPACE/.github/debug/stress_load3.py" 4
+          kill $hog_pid || true
       - name: DEBUG repeat the CLI integration tests
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
           failures=0
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3; do
             echo "=== repetition $i $(date -u +%T)"
             python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py 2>&1 | tail -150 || true
             if [ "${PIPESTATUS[0]}" != 0 ]; then failures=$((failures + 1)); fi
