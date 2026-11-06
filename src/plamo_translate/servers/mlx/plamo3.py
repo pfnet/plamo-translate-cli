@@ -14,6 +14,7 @@ from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
+from mlx.utils import tree_flatten
 
 POST_MIXER_OFFSET = 1.0 / 5
 POST_MLP_OFFSET = 1.0 / (5**1.5)
@@ -275,7 +276,7 @@ def load_config(path: Path) -> dict:
 def load_model(
     path: str | Path, dtype: mx.Dtype = mx.float16, transform: Callable[[Model], None] | None = None
 ) -> tuple[Model, dict]:
-    """Load a checkpoint one layer at a time, converting it to dtype after transform (such as quantization)."""
+    """Load a checkpoint one parameter at a time, converting it to dtype after transform (such as quantization)."""
     path = Path(path)
     config = load_config(path)
     if config.get("model_type") != "plamo3":
@@ -293,11 +294,12 @@ def load_model(
     del weights
     if transform is not None:
         transform(model)
-    # Evaluate one layer or one large tensor at a time. In a single evaluation the 4bit load peaked at 7.2 GB and left
-    # 5.3 GB cached, too much for 8 GB Macs. The CLI also lets Metal command buffers grow without limit for decoding,
-    # and on CI runners short of memory Metal aborted the larger ones (GPU Timeout Error).
-    for module in [*model.model.layers.layers, model.model.embed_tokens, model.lm_head]:
+    # Give each parameter its own command buffer: every evaluation ends one. The CLI lets command buffers grow without
+    # limit, which speeds up decoding, and on CI runners short of memory Metal aborted the long ones loading used to
+    # build (GPU Timeout Error). Freeing memory after each layer keeps the 4bit load at 2.6 GB rather than 7.2 GB.
+    for module in [*model.model.layers.layers, model]:
+        for _, parameter in tree_flatten(module.parameters()):
+            mx.async_eval(parameter)
         mx.eval(module.parameters())
         mx.clear_cache()
-    mx.eval(model.parameters())
     return model, config
