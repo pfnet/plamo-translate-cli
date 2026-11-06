@@ -3,9 +3,10 @@ import json
 import logging
 import os
 import socket
+import stat
 import textwrap
 from contextlib import closing
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, gettempdir
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -129,11 +130,27 @@ def find_free_port(
     )
 
 
+def config_directory() -> Path:
+    """$TMPDIR, which macOS sets per user; elsewhere a private directory under the system temporary directory."""
+    tmp_dir = os.environ.get("TMPDIR")
+    if tmp_dir:
+        return Path(tmp_dir)
+    # Linux usually leaves TMPDIR unset, and /tmp is shared between users.
+    directory = Path(gettempdir()) / f"plamo-translate-{os.getuid()}"
+    try:
+        directory.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    info = os.lstat(directory)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise RuntimeError(f"{directory} is not a directory of this user; set TMPDIR to a private directory.")
+    if info.st_mode & 0o077:
+        os.chmod(directory, 0o700)
+    return directory
+
+
 def update_config(**kwargs) -> Dict[str, Any]:
-    tmp_dir = os.environ.get("TMPDIR", None)
-    if tmp_dir is None:
-        raise ValueError("TMPDIR environment variable is not set. Please set it to a valid directory.")
-    tmp_config_path = Path(tmp_dir) / "plamo-translate-config.json"
+    tmp_config_path = config_directory() / "plamo-translate-config.json"
 
     if not tmp_config_path.exists():
         if not kwargs:

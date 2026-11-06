@@ -1,5 +1,7 @@
 # PLaMo 3 Translate 2B on fused Metal kernels, 2026-11-04
 
+Built with PLaMo.
+
 Source: `pfnet/plamo-3-translate-2b` at `355637cc04db67195ba87a97da85eaf1d52a22e8`. The measured copy
 has byte-identical weights, configuration and tokenizer. On 2026-11-05 the downloaded repository reproduced
 the same outputs at 161 and 167 tok/s on the shared machine.

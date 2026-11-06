@@ -516,7 +516,7 @@ def test_cli_checks_llama_server_before_downloading(tmp_path):
     assert not (tmp_path / "plamo-translate-config.json").exists()
 
 
-def start_cli(monkeypatch, tmp_path, *arguments, missing=()):
+def start_cli(monkeypatch, tmp_path, *arguments, missing=(), backend=("--backend-type", "llama.cpp")):
     """Run main() up to the translation or server start and return its arguments.
 
     Downloads come from local fake GGUFs; models in `missing` are neither cached nor downloadable.
@@ -550,7 +550,7 @@ def start_cli(monkeypatch, tmp_path, *arguments, missing=()):
     monkeypatch.setattr(cli, "start_mcp_server", start_mcp_server)
     # Subcommands come first: their parser would reset options given before them.
     command = [arguments[0]] if arguments[:1] == ("server",) else []
-    options = ["--backend-type", "llama.cpp", "--llama-server", sys.executable, *arguments[len(command) :]]
+    options = [*backend, "--llama-server", sys.executable, *arguments[len(command) :]]
     monkeypatch.setattr(sys, "argv", ["plamo-translate", *command, *options])
     cli.main()
     return received[0]
@@ -571,6 +571,18 @@ def test_cli_defaults_to_official_gguf_with_draft_for_sessions(monkeypatch, tmp_
     # Naming the default model keeps its draft.
     args = start_cli(monkeypatch, tmp_path, "--interactive", "--model", "pfnet/plamo-3-translate-2b-GGUF:q4_k_m")
     assert args.llama_options["draft_model"] == str(tmp_path / "draft.gguf")
+
+
+def test_cli_uses_llama_cpp_where_mlx_is_unavailable(monkeypatch, tmp_path, capsys):
+    # Linux and Intel Macs, where the package installs without MLX.
+    monkeypatch.setattr(cli, "mlx_available", lambda: False)
+    args = start_cli(monkeypatch, tmp_path, "--input", "hello", backend=())
+    assert args.llama_options["model"] == str(tmp_path / "default.gguf")
+    monkeypatch.setattr(sys, "argv", ["plamo-translate", "--backend-type", "mlx", "--input", "hello"])
+    with pytest.raises(SystemExit) as stopped:
+        cli.main()
+    assert stopped.value.code == 2
+    assert "MLX needs an Apple Silicon Mac" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("model", ["pfnet/plamo-3-translate-2b-GGUF:Q4_0", "user/plamo2-GGUF"])
@@ -649,6 +661,8 @@ def test_cli_rejects_invalid_llama_models(monkeypatch, tmp_path, capsys, argumen
 
 def test_cli_rejects_draft_for_mlx(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
+    # MLX is the default only where it is available.
+    monkeypatch.setattr(cli, "mlx_available", lambda: True)
     monkeypatch.setattr(cli, "check_server_running", lambda: False)
     monkeypatch.setattr(sys, "argv", ["plamo-translate", "--draft-model", "none", "--input", "hello"])
     with pytest.raises(SystemExit):

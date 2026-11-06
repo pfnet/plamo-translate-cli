@@ -2,6 +2,8 @@
 
 A command-line interface for local translation powered by plamo-3-translate-2b, a PFN™ translation model
 
+Built with PLaMo. The example translations in this README are output of PLaMo Translate models; see [License](#license).
+
 ## Features
 
 - Translate text between 16+ languages including Japanese, English, Chinese, Korean, and more
@@ -11,22 +13,40 @@ A command-line interface for local translation powered by plamo-3-translate-2b, 
 
 ## Installation
 
-### For macOS
-
-`plamo-translate` currently installs on Python 3.10 through 3.14 on macOS.
-No additional workaround is required for `sentencepiece` on Python 3.13 or 3.14 with current upstream releases.
+`plamo-translate` installs on Python 3.10 through 3.14:
 
 ```sh
 pip install plamo-translate
 ```
 
-#### [`uv tool`](https://docs.astral.sh/uv/concepts/tools/)
-
-If you use [`uv`](https://github.com/astral-sh/uv) as a package manager rather than `pip`, you can install `plamo-translate` into an isolated environment:
+If you use [`uv`](https://github.com/astral-sh/uv) as a package manager rather than `pip`, you can install
+`plamo-translate` into an isolated environment with [`uv tool`](https://docs.astral.sh/uv/concepts/tools/):
 
 ```sh
 uv tool install -p 3.14 plamo-translate
 ```
+
+| Platform | Default backend | Notes |
+| --- | --- | --- |
+| Apple Silicon Mac, macOS 14 or later | MLX | Installs MLX. The default model needs about 2.6 GB of memory while it loads. |
+| Linux, Intel Mac | llama.cpp | Installs without MLX; install `llama-server` as described below. |
+
+MLX needs macOS 14 or later: on an Apple Silicon Mac with macOS 13, pip installs an old release without PLaMo 3
+Translate. Windows is not supported; use WSL, where the CLI runs as on Linux.
+
+### Linux and Intel Macs
+
+These platforms translate with [llama.cpp](https://github.com/ggml-org/llama.cpp). Install `llama-server` b11960 or
+newer, for example with [Homebrew](https://brew.sh) (`brew install llama.cpp`), or build the tested revision from a
+checkout of this repository with `scripts/build_llama_cpp.sh`. CI builds that revision on Ubuntu and translates with
+it on the CPU; Intel Macs and Homebrew on Linux have not been tested. Put `llama-server` on `PATH`, or point to it:
+
+```sh
+export PLAMO_TRANSLATE_CLI_LLAMA_SERVER=/path/to/llama.cpp/build/bin/llama-server
+plamo-translate --from English --to Japanese --input "Hello"
+```
+
+The first run downloads the default GGUF (1.81 GB); see [PLaMo 3 on llama.cpp](#plamo-3-on-llamacpp).
 
 ## Development
 
@@ -41,7 +61,7 @@ source .venv/bin/activate
   - Common dependencies:
     - mcp[cli]
     - numba
-  - On macOS:
+  - On Apple Silicon Macs (macOS 14 or later):
     - mlx-lm
 - For the llama.cpp backend: `llama-server` from llama.cpp b11960 (0.8.0) or newer, for example `brew install llama.cpp`;
   measurements used `scripts/build_llama_cpp.sh`
@@ -54,10 +74,10 @@ Without `--model`, the MLX backend translates with
 [`pfnet/plamo-3-translate-2b`](https://huggingface.co/pfnet/plamo-3-translate-2b).
 The first run downloads its original weights (5.76 GB) into the Hugging Face cache, and each
 load quantizes them to 4bit or to the precision given with `--precision`; `bf16` skips quantization
-and computes in FP16. The model is distributed under the
-[PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-en).
+and computes in FP16. The model is distributed under the PLaMo Community License; see [License](#license).
 
-With `--backend-type llama.cpp`, the default is the official GGUF
+With the llama.cpp backend (`--backend-type llama.cpp`, the default on Linux and Intel Macs), the default model is the
+official GGUF
 [`pfnet/plamo-3-translate-2b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF) at Q4_K_M (1.81 GB),
 which loads without conversion. See [PLaMo 3 on llama.cpp](#plamo-3-on-llamacpp).
 
@@ -77,7 +97,6 @@ If you don't specify them, the input/output language will be automatically selec
 
 ```sh
 $ plamo-translate
-Loading models...done!
 Interactive mode enabled. Type your input below (Ctrl+D to exit).
 > こんにちは、お元気ですか？
 Hello, how are you?
@@ -117,7 +136,6 @@ You can also use the interactive mode with the server:
 
 ```sh
 $ plamo-translate
-Loading models...done!
 Interactive mode enabled. Type your input below (Ctrl+D to exit).
 > 家計は火の車だ
 The household finances are in dire straits.
@@ -400,8 +418,9 @@ and experimental groups below describe PLaMo 2.
 
 ## Server Backends
 
-- mlx: Optimized for macOS with Apple Silicon (default on macOS)
-- llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool.
+- mlx: Optimized for Apple Silicon (default there)
+- llama.cpp: Local GGUF inference with the native `llama-server`, exposed through the same CLI and MCP tool
+  (default on Linux and Intel Macs).
   It starts in about a second (two with the draft model that servers and interactive mode load), and with the
   draft it decodes PLaMo 3 at about 130 tok/s on M1 Max
 
@@ -483,7 +502,8 @@ must be removed once a llama.cpp release honors `yarn_truncate`.
 
 ### llama.cpp runtime and PLaMo 2 GGUFs
 
-Build the tested runtime from this checkout (requires Git, CMake and Xcode Command Line Tools):
+Build the tested runtime from this checkout (requires Git, CMake and a C/C++ compiler: Xcode Command Line Tools on
+macOS, for example `build-essential` on Ubuntu):
 
 ```sh
 bash scripts/build_llama_cpp.sh
@@ -579,7 +599,8 @@ content and do not interpret it as general translation accuracy.
 - --input TEXT Input text to translate
 - --from TEXT Input language for translation (default: English|Japanese, chosen from the text)
 - --to TEXT Output language for translation (default: the other of English and Japanese)
-- --backend-type Server backend: [mlx, llama.cpp] (default: reuse a running server, otherwise mlx)
+- --backend-type Server backend: [mlx, llama.cpp] (default: reuse a running server, otherwise mlx on Apple Silicon
+  and llama.cpp elsewhere)
 - --model MLX: local model directory or Hugging Face repository (default: pfnet/plamo-3-translate-2b).
   llama.cpp: GGUF file or `<user>/<repo>[:QUANT or file.gguf]` (default: pfnet/plamo-3-translate-2b-GGUF:Q4_K_M)
 - --draft-model llama.cpp draft GGUF or repository, or `none` (default: pfnet/plamo-3-translate-0.8b-GGUF:Q4_0
@@ -609,3 +630,28 @@ You can configure the following parameters using environment variables:
 ```sh
 bash scripts/deploy.sh
 ```
+
+## License
+
+The source code of `plamo-translate` is licensed under the [Apache License 2.0](LICENSE).
+
+The models it downloads are distributed under the PLaMo Community License
+([English](https://plamo.preferredai.jp/info/plamo-community-license-en),
+[Japanese](https://plamo.preferredai.jp/info/plamo-community-license-ja)), not under the Apache License. This includes
+[`pfnet/plamo-3-translate-2b`](https://huggingface.co/pfnet/plamo-3-translate-2b) (MLX default),
+[`pfnet/plamo-3-translate-2b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF) (llama.cpp default),
+[`pfnet/plamo-3-translate-0.8b-GGUF`](https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF) (draft model that
+llama.cpp servers and interactive mode download) and the PLaMo 2 Translate models. Read the license before using
+them. In short, as summarized on the model cards:
+
+- Personal and non-commercial use, including academic use, is free and needs no registration.
+- Commercial use is free when the revenue or sales of the user or its affiliates in the most recent fiscal year were
+  1 billion yen or less, after registering through the [PLaMo Commercial Use Registration Form](https://forms.gle/mTL8tBLrMYXKNZD56). The license
+  counts use within an organization as commercial use. Above 1 billion yen, a separate agreement with PFN is needed
+  ([inquiry page](https://translate.preferredai.jp/llm/contact/)).
+- Translations that you publish must be clearly indicated as output of the model (Article 5).
+- Providing the models or their output to others requires a copy of the license for the recipients, "Built with
+  PLaMo" in related websites, interfaces or documentation, and "PLaMo" in the names of models you derive from them
+  (Article 4).
+
+The license text is authoritative; this summary is not.

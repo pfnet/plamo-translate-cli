@@ -8,18 +8,25 @@ from pathlib import Path
 import mlx.core as mx
 import mlx.nn as nn
 from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 from mlx_lm.generate import wired_limit
 from mlx_lm.utils import load_tokenizer
 from transformers import PreTrainedConfig
 
-from plamo_translate.servers.mlx.pfml3 import BOS, MSG, TAG, checkpoint_config, pfml3_prompt
+from plamo_translate.servers.mlx.pfml3 import (
+    BOS,
+    CHECKPOINT_FILES,
+    MSG,
+    TAG,
+    checkpoint_complete,
+    checkpoint_config,
+    pfml3_prompt,
+)
 from plamo_translate.servers.mlx.plamo3 import load_model
 from plamo_translate.servers.mlx.plamo3_metal import FastDecoder
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
 
 GROUP_SIZE = 64
-# Files inference reads from a repository; the original weights are converted on load.
-CHECKPOINT_FILES = ["*.json", "*.safetensors", "tokenizer.jsonl", "tokenization_plamo.py"]
 # Largest FP32 logit difference accepted between the kernels and the plain MLX ops.
 SELF_CHECK_TOLERANCE = 0.25
 
@@ -55,6 +62,13 @@ def checkpoint_path(name: str) -> Path:
     local = Path(name).expanduser()
     if local.is_dir():
         return local
+    try:
+        # The CLI downloads the checkpoint before starting the server; skip the Hub request and its progress bar.
+        cached = Path(snapshot_download(name, allow_patterns=CHECKPOINT_FILES, local_files_only=True))
+        if checkpoint_complete(cached):
+            return cached
+    except LocalEntryNotFoundError:
+        pass
     config = checkpoint_config(name)
     if config is not None and config.get("quantization"):
         # Refuse before downloading the weights.
@@ -69,7 +83,13 @@ class Plamo3Translator:
         # FP16 keeps more mantissa bits than BF16; activations stayed far below its range on real text.
         self.model, self.config = load_model(self.path, mx.float16, lazy=True)
         quantize(self.model, self.precision)
+        # Convert and quantize one layer at a time, returning freed buffers: in a single evaluation the 4bit load
+        # peaked at 7.2 GB and left 5.3 GB cached, too much for 8 GB Macs.
+        for layer in self.model.model.layers.layers:
+            mx.eval(layer.parameters())
+            mx.clear_cache()
         mx.eval(self.model.parameters())
+        mx.clear_cache()
         with suppress_optional_gpu_dependency_warnings():
             self.tokenizer = load_tokenizer(
                 self.path,
