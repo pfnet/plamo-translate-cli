@@ -288,16 +288,16 @@ def load_model(
     weights = {}
     for shard in sorted(path.glob("model*.safetensors")):
         weights.update(mx.load(str(shard)))
-    model.load_weights([(name, array.astype(dtype)) for name, array in weights.items()])
+    # Cast on the CPU: it gives the same values and leaves the GPU only quantization.
+    model.load_weights([(name, array.astype(dtype, stream=mx.cpu)) for name, array in weights.items()])
+    del weights
     if transform is not None:
         transform(model)
-    # Convert one layer at a time, returning freed buffers: in a single evaluation the 4bit load peaked at 7.2 GB and
-    # left 5.3 GB cached, too much for 8 GB Macs.
-    layers = [(f"model.layers.layers.{i}.", layer) for i, layer in enumerate(model.model.layers.layers)]
-    for prefix, module in [*layers, ("", model)]:
-        # Read from disk on the CPU first. Converting in the same evaluation made the GPU wait for the reads, and Metal
-        # aborts a command buffer after a few seconds (GPU Timeout Error): it did on CI runners short of page cache.
-        mx.eval([weights.pop(name) for name in list(weights) if name.startswith(prefix)])
+    # Evaluate one layer or one large tensor at a time. In a single evaluation the 4bit load peaked at 7.2 GB and left
+    # 5.3 GB cached, too much for 8 GB Macs. The CLI also lets Metal command buffers grow without limit for decoding,
+    # and on CI runners short of memory Metal aborted the larger ones (GPU Timeout Error).
+    for module in [*model.model.layers.layers, model.model.embed_tokens, model.lm_head]:
         mx.eval(module.parameters())
         mx.clear_cache()
+    mx.eval(model.parameters())
     return model, config

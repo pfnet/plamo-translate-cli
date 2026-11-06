@@ -30,8 +30,8 @@ def start_server(log_path: Path, *arguments: str) -> subprocess.Popen:
             ["plamo-translate", "server", *arguments],
             stdout=log,
             stderr=subprocess.STDOUT,
-            # A timed-out server is aborted below; this makes it print where each thread was.
-            env={**os.environ, "PYTHONFAULTHANDLER": "1"},
+            # A timed-out server is aborted below: print where each thread was, and keep what it printed before.
+            env={**os.environ, "PYTHONFAULTHANDLER": "1", "PYTHONUNBUFFERED": "1"},
         )
 
 
