@@ -163,17 +163,15 @@ jobs:
       - name: Run real-model tests against the installed wheel
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py
-      - name: DEBUG repeat the CLI integration tests
+      - name: DEBUG load from a cold page cache under memory pressure
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          failures=0
-          for i in 1 2 3 4; do
-            echo "=== repetition $i $(date -u +%T)"
-            python -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py 2>&1 | tail -150 || true
-            if [ "${PIPESTATUS[0]}" != 0 ]; then failures=$((failures + 1)); fi
-          done
-          echo "failed repetitions: $failures"
+          hog=$(python -c "print([0, 1, 2, 2.5, 3][${{ matrix.job }} - 1])")
+          echo "holding ${hog} GB"
+          python -c "import numpy as np, time; a = np.ones(int(${hog} * 1e9) // 8); time.sleep(3600)" &
+          sleep 5
+          python "$GITHUB_WORKSPACE/.github/debug/stress_load.py" 4
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |
