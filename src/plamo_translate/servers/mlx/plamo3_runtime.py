@@ -27,6 +27,8 @@ from plamo_translate.servers.mlx.plamo3_metal import FastDecoder
 from plamo_translate.servers.warnings import suppress_optional_gpu_dependency_warnings
 
 GROUP_SIZE = 64
+# lm_head rows quantized per command buffer: about 70 MB of FP16, a third of a layer.
+LM_HEAD_ROWS = 13440
 # Largest FP32 logit difference accepted between the kernels and the plain MLX ops.
 SELF_CHECK_TOLERANCE = 0.25
 
@@ -57,6 +59,15 @@ def quantize(model: nn.Module, precision: str) -> None:
     nn.quantize(model, group_size=GROUP_SIZE, bits=bits, class_predicate=predicate)
 
 
+def quantize_rows(module: nn.QuantizedLinear, weight: mx.array) -> None:
+    """Quantize an evaluated weight a block of rows at a time; groups never span rows, so the result is the same."""
+    blocks = []
+    for start in range(0, weight.shape[0], LM_HEAD_ROWS):
+        blocks.append(mx.quantize(weight[start : start + LM_HEAD_ROWS], module.group_size, module.bits))
+        mx.eval(blocks[-1])
+    module.weight, module.scales, module.biases = (mx.concatenate(parts, stream=mx.cpu) for parts in zip(*blocks))
+
+
 def checkpoint_path(name: str) -> Path:
     """A local checkpoint directory, or a Hugging Face repository downloaded into the cache."""
     local = Path(name).expanduser()
@@ -82,17 +93,22 @@ class Plamo3Translator:
         self.precision = precision or "4bit"
         # FP16 keeps more mantissa bits than BF16; activations stayed far below its range on real text.
         self.model, self.config = load_model(self.path, mx.float16, lazy=True)
+        head = self.model.lm_head.weight
         quantize(self.model, self.precision)
         # Convert and quantize one layer at a time, returning freed buffers: in a single evaluation the 4bit load
         # peaked at 7.2 GB and left 5.3 GB cached, too much for 8 GB Macs.
         for layer in self.model.model.layers.layers:
             mx.eval(layer.parameters())
             mx.clear_cache()
-        # The embedding and lm_head are the largest tensors: converting both in one evaluation made a command buffer
-        # over five times a layer's, and on CI runners short of memory Metal aborted it (GPU Timeout Error).
-        for module in (self.model.model.embed_tokens, self.model.lm_head, self.model):
-            mx.eval(module.parameters())
-            mx.clear_cache()
+        # The embedding and lm_head are each over twice a layer's size. On CI runners short of memory, Metal aborted
+        # command buffers converting them on the GPU (GPU Timeout Error), so load_model casts both on the CPU and
+        # lm_head is quantized in blocks of rows.
+        mx.eval(self.model.model.embed_tokens.parameters(), head)
+        if isinstance(self.model.lm_head, nn.QuantizedLinear):
+            quantize_rows(self.model.lm_head, head)
+        del head
+        mx.eval(self.model.parameters())
+        mx.clear_cache()
         with suppress_optional_gpu_dependency_warnings():
             self.tokenizer = load_tokenizer(
                 self.path,

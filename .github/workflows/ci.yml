@@ -176,20 +176,19 @@ jobs:
         if: always()
         working-directory: ${{ runner.temp }}
         run: |
-          declare -A failed=([main]=0 [fix]=0)
+          main_failed=0
+          fix_failed=0
           for i in 1 2 3 4 5 6 7 8; do
             for variant in main fix; do
               if [ $variant = main ]; then venv="$RUNNER_TEMP/main-venv"; else venv="$RUNNER_TEMP/wheel-venv"; fi
-              echo "=== repetition $i $variant $(date -u +%T)"
-              PATH="$venv/bin:$PATH" "$venv/bin/python" -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py > "run.log" 2>&1 || true
-              tail -1 run.log
+              PATH="$venv/bin:$PATH" "$venv/bin/python" -I -m pytest -s wheel-tests/test_mlx_backend.py wheel-tests/test_cli_integration.py > run.log 2>&1 || true
               count=$(grep -c "^FAILED" run.log || true)
-              failed[$variant]=$((failed[$variant] + count))
-              grep -E "^E +(RuntimeError|AssertionError: (The server|Timed out))" run.log | head -3 || true
-              grep -E "^E +File .*plamo3_runtime.py" run.log | tail -1 || true
+              echo "RESULT repetition $i $variant failed=$count $(tail -1 run.log)"
+              grep -E "^E +RuntimeError|^E +AssertionError: (The server|Timed out)|^E +File .*plamo3_runtime.py" run.log | head -4 || true
+              if [ $variant = main ]; then main_failed=$((main_failed + count)); else fix_failed=$((fix_failed + count)); fi
             done
           done
-          echo "FAILED TESTS main=${failed[main]} fix=${failed[fix]} (16 server starts each)"
+          echo "TOTAL FAILED TESTS main=$main_failed fix=$fix_failed (16 server starts each)"
       - name: DEBUG server logs, crash reports and memory kills
         if: always()
         run: |

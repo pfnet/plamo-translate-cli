@@ -284,7 +284,11 @@ def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = Fals
     weights = {}
     for shard in sorted(path.glob("model*.safetensors")):
         weights.update(mx.load(str(shard)))
-    model.load_weights([(name, array.astype(dtype)) for name, array in weights.items()])
+    # Cast the two largest tensors on the CPU, which gives the same values and has no Metal time limit.
+    on_cpu = {"model.embed_tokens.weight", "lm_head.weight"}
+    model.load_weights(
+        [(name, array.astype(dtype, stream=mx.cpu if name in on_cpu else None)) for name, array in weights.items()]
+    )
     if not lazy:
         mx.eval(model.parameters())
     return model, config
