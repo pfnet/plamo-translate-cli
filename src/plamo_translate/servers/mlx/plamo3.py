@@ -7,6 +7,7 @@ query/key distance, so each key needs rotating once, when it enters the cache.
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
 
@@ -271,7 +272,10 @@ def load_config(path: Path) -> dict:
     return json.loads((path / "config.json").read_text())
 
 
-def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = False) -> tuple[Model, dict]:
+def load_model(
+    path: str | Path, dtype: mx.Dtype = mx.float16, transform: Callable[[Model], None] | None = None
+) -> tuple[Model, dict]:
+    """Load a checkpoint one layer at a time, converting it to dtype after transform (such as quantization)."""
     path = Path(path)
     config = load_config(path)
     if config.get("model_type") != "plamo3":
@@ -285,6 +289,15 @@ def load_model(path: str | Path, dtype: mx.Dtype = mx.float16, lazy: bool = Fals
     for shard in sorted(path.glob("model*.safetensors")):
         weights.update(mx.load(str(shard)))
     model.load_weights([(name, array.astype(dtype)) for name, array in weights.items()])
-    if not lazy:
-        mx.eval(model.parameters())
+    if transform is not None:
+        transform(model)
+    # Convert one layer at a time, returning freed buffers: in a single evaluation the 4bit load peaked at 7.2 GB and
+    # left 5.3 GB cached, too much for 8 GB Macs.
+    layers = [(f"model.layers.layers.{i}.", layer) for i, layer in enumerate(model.model.layers.layers)]
+    for prefix, module in [*layers, ("", model)]:
+        # Read from disk on the CPU first. Converting in the same evaluation made the GPU wait for the reads, and Metal
+        # aborts a command buffer after a few seconds (GPU Timeout Error): it did on CI runners short of page cache.
+        mx.eval([weights.pop(name) for name in list(weights) if name.startswith(prefix)])
+        mx.eval(module.parameters())
+        mx.clear_cache()
     return model, config
